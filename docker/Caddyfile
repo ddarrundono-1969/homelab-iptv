@@ -1,0 +1,21 @@
+# IPTV_SITE_ADDRESS=:80 serves plain HTTP on the LAN.
+# Set it to your domain (e.g. tv.example.com) for automatic HTTPS; ports 80/443
+# must then reach this host and the compose port mappings changed to 80:80 / 443:443.
+{$IPTV_SITE_ADDRESS}
+
+redir / /stream-iptv/ 302
+redir /stream-iptv /stream-iptv/ 301
+
+handle_path /stream-iptv/* {
+	reverse_proxy manager:5000 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+		}
+	}
+	header Cache-Control "no-store"
+}
+
+handle {
+	respond 404
+}

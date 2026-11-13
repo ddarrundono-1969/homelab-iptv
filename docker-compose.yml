@@ -1,0 +1,55 @@
+# homelab-iptv. Start:  cp .env.example .env  (edit it)  &&  docker compose up -d --build
+# Open:   http://<this-host>:${IPTV_HTTP_PORT:-8080}/stream-iptv/
+services:
+  manager:
+    build: .
+    image: homelab-iptv:latest
+    container_name: iptv-manager
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - REQUIRE_POSTGRES=${REQUIRE_POSTGRES:-0}
+    volumes:
+      - ./data:/data
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5000/api/playlist/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # The app is built to live under /stream-iptv/. Caddy strips that prefix,
+  # streams without buffering, and can do HTTPS if you give it a domain.
+  proxy:
+    image: caddy:2.9.1
+    container_name: iptv-proxy
+    restart: unless-stopped
+    environment:
+      - IPTV_SITE_ADDRESS=${IPTV_SITE_ADDRESS:-:80}
+    ports:
+      - "${IPTV_HTTP_PORT:-8080}:80"
+      - "${IPTV_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - manager
+
+  # Optional: Postgres instead of SQLite (faster search with very large provider lists).
+  #   docker compose --profile postgres up -d   and set DATABASE_URL + REQUIRE_POSTGRES=1 in .env
+  db:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    container_name: iptv-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=iptv
+      - POSTGRES_DB=iptv
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+volumes:
+  caddy_data:

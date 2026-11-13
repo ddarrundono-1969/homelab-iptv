@@ -1,0 +1,3 @@
+# Starting playlist. Add channels in the web UI (Manager -> Add channel / Providers).
+rotation_interval_seconds: 900
+streams: []

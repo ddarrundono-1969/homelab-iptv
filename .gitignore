@@ -1,0 +1,12 @@
+# Runtime data and secrets: never commit
+.env
+data/
+*.db
+*.db-journal
+*.htpasswd
+passwords.json
+.flask_secret_key
+.cred_map.json
+provider_*.json
+__pycache__/
+*.pyc

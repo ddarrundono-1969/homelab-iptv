@@ -1,0 +1,4014 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="IPTV Kiosk">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <title>IPTV Dedicated Kiosk Player</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@latest/dist/mpegts.js"></script>
+    <style>
+        :root {
+            --bg-base: #000000;
+            --overlay-bg: rgba(15, 23, 42, 0.85);
+            --overlay-border: rgba(255, 255, 255, 0.12);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-emerald: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --font-main: 'Inter', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #player-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            cursor: default;
+        }
+
+        .kiosk-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+            transition: opacity 0.45s ease-in-out;
+        }
+
+        .kiosk-video.active {
+            opacity: 1;
+            z-index: 2;
+            pointer-events: auto;
+        }
+
+        .kiosk-video.preload {
+            opacity: 0;
+            z-index: 1;
+            pointer-events: none;
+        }
+
+        iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #000;
+            z-index: 3;
+        }
+
+        /* Top Overlay Header */
+        .top-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 1rem 1.5rem;
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.85) 0%, transparent 100%);
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+            gap: 1.25rem;
+            z-index: 100;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
+        /* Top Actions (Far Left) */
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            z-index: 110;
+            flex-shrink: 0;
+        }
+
+        .channel-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            min-width: 0;
+            flex-shrink: 1;
+        }
+
+        .live-badge {
+            background: var(--accent-rose);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            box-shadow: 0 0 12px rgba(244, 63, 94, 0.6);
+            flex-shrink: 0;
+        }
+
+        .pulse-dot {
+            width: 6px;
+            height: 6px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.4; }
+            50% { opacity: 1; transform: scale(1.2); }
+            100% { opacity: 0.4; }
+        }
+
+        .channel-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+            max-width: 25vw;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .channel-program {
+            font-size: 0.85rem;
+            color: #7dd3fc;
+            max-width: 45vw;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .channel-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* Bottom Controls Bar */
+        .bottom-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 1.5rem 2rem;
+            background: linear-gradient(0deg, rgba(0, 0, 0, 0.9) 0%, transparent 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            z-index: 100;
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 9999px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
+            transition: width 0.25s linear;
+        }
+
+        .controls-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .playback-buttons {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--overlay-border);
+            color: var(--text-main);
+            padding: 0.6rem 1rem;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.22);
+            transform: translateY(-1px);
+        }
+
+        .btn-active {
+            background: var(--accent-blue) !important;
+            border-color: rgba(99, 102, 241, 0.6) !important;
+            box-shadow: 0 0 16px rgba(59, 130, 246, 0.4);
+        }
+
+        .btn-icon {
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            justify-content: center;
+            border-radius: 10px;
+        }
+
+        /* Closed Captioning / Subtitles ::cue Styling */
+        ::cue {
+            background-color: rgba(0, 0, 0, 0.75) !important;
+            color: #f8fafc !important;
+            font-family: 'Inter', -apple-system, sans-serif !important;
+            font-size: 1.15rem !important;
+            font-weight: 500 !important;
+            line-height: 1.4 !important;
+            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9) !important;
+            border-radius: 4px !important;
+            padding: 2px 6px !important;
+        }
+
+        /* Interval Selector */
+        .interval-group {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid var(--overlay-border);
+            padding: 4px 8px;
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+        }
+
+        .interval-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-right: 4px;
+            font-weight: 500;
+        }
+
+        .playlist-type-group {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid var(--overlay-border);
+            padding: 4px 8px;
+            border-radius: 12px;
+            backdrop-filter: blur(12px);
+            flex-wrap: wrap;
+        }
+
+        .playlist-type-btn {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.08);
+            color: var(--text-main);
+            border-radius: 8px;
+            padding: 0.35rem 0.6rem;
+            font-size: 0.72rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .playlist-type-btn.active {
+            background: rgba(59, 130, 246, 0.25);
+            border-color: rgba(59, 130, 246, 0.65);
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.28);
+        }
+
+        .playlist-type-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.35rem 0.8rem;
+            border-radius: 999px;
+            border: 1px solid rgba(125, 211, 252, 0.55);
+            background: linear-gradient(135deg, rgba(37, 99, 235, 0.28), rgba(59, 130, 246, 0.12));
+            color: #eff6ff;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08), 0 0 12px rgba(59, 130, 246, 0.18);
+        }
+
+        .interval-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            font-family: var(--font-mono);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .interval-btn:hover {
+            color: white;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .interval-btn.active {
+            color: white;
+            background: var(--accent-blue);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+        }
+
+        .interval-input {
+            width: 55px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--overlay-border);
+            border-radius: 6px;
+            color: white;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            text-align: center;
+            padding: 4px;
+            outline: none;
+        }
+
+        .interval-input:focus {
+            border-color: var(--accent-blue);
+        }
+
+        /* Side Channel Drawer */
+        .drawer-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(6px);
+            z-index: 200;
+            display: none;
+        }
+
+        .drawer {
+            position: fixed;
+            top: 0;
+            right: -420px;
+            width: 400px;
+            height: 100vh;
+            background: rgba(15, 23, 42, 0.95);
+            border-left: 1px solid var(--overlay-border);
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.7);
+            z-index: 210;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(16px);
+        }
+
+        .drawer.open {
+            right: 0;
+        }
+
+        .drawer-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--overlay-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .drawer-search {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--overlay-border);
+        }
+
+        .drawer-search input {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--overlay-border);
+            border-radius: 8px;
+            padding: 0.6rem 1rem;
+            color: white;
+            font-family: var(--font-main);
+            outline: none;
+        }
+
+        .channel-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .channel-item {
+            padding: 0.85rem 1rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid transparent;
+            border-radius: 10px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.2s;
+        }
+
+        .channel-item:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .channel-item.active {
+            background: rgba(59, 130, 246, 0.2);
+            border-color: var(--accent-blue);
+        }
+
+        /* Non-Intrusive Unmute Pill Banner */
+        .unmute-pill {
+            position: absolute;
+            top: 75px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid var(--accent-cyan);
+            border-radius: 30px;
+            padding: 0.5rem 1.25rem;
+            display: none;
+            align-items: center;
+            gap: 0.75rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+            z-index: 150;
+            backdrop-filter: blur(12px);
+            cursor: pointer;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        .unmute-pill:hover {
+            background: rgba(30, 41, 59, 0.95);
+            transform: translateX(-50%) scale(1.03);
+        }
+
+        /* Error Notification */
+        .error-toast {
+            position: absolute;
+            top: 100px;
+            right: 2rem;
+            background: rgba(244, 63, 94, 0.9);
+            color: white;
+            padding: 0.75rem 1.25rem;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            z-index: 150;
+            display: none;
+            box-shadow: 0 8px 24px rgba(244, 63, 94, 0.4);
+        }
+
+        /* Always-On Persistent Timer HUD */
+        .persistent-hud-container {
+            position: absolute;
+            top: 1rem;
+            left: 1rem;
+            z-index: 180;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            pointer-events: auto !important;
+        }
+
+        .persistent-timer-hud {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            padding: 3px 8px;
+            border-radius: 9999px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+            opacity: 0.92;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .persistent-timer-hud:hover {
+            opacity: 1;
+            transform: scale(1.03);
+            border-color: var(--accent-blue);
+        }
+
+        .hud-provider-tag {
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(168, 85, 247, 0.35);
+            backdrop-filter: blur(12px);
+            padding: 2px 8px;
+            border-radius: 9999px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            font-size: 0.68rem;
+            font-weight: 600;
+            color: #c084fc;
+            opacity: 0.92;
+            transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .hud-provider-tag:hover {
+            opacity: 1;
+            transform: scale(1.03);
+            border-color: #c084fc;
+        }
+
+        .hud-program-tag {
+            border-color: rgba(56, 189, 248, 0.35);
+            color: #7dd3fc;
+            max-width: 40vw;
+        }
+
+        .hud-program-tag span:last-child {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .hud-program-tag[hidden],
+        .channel-program[hidden] {
+            display: none !important;
+        }
+
+        .hud-dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 6px #10b981;
+        }
+
+        .hud-reload-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #f8fafc;
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 9px;
+            transition: all 0.25s ease;
+        }
+
+        .hud-reload-btn:hover {
+            background: var(--accent-blue);
+            transform: scale(1.1);
+        }
+
+        .ui-hidden .top-bar { opacity: 0; transform: translateY(-30px); pointer-events: none; }
+        .ui-hidden .bottom-bar { opacity: 0; transform: translateY(30px); pointer-events: none; }
+
+        /* Windowed / Movable / Resizable Kiosk Mode */
+        body.windowed-mode {
+            background: radial-gradient(circle at center, #111827 0%, #030712 100%) !important;
+            overflow: hidden !important;
+        }
+
+        #player-container.windowed {
+            position: fixed !important;
+            border-radius: 14px !important;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.92), 0 0 0 1px rgba(255, 255, 255, 0.16) !important;
+            min-width: 340px !important;
+            min-height: 220px !important;
+            max-width: 98vw !important;
+            max-height: 98vh !important;
+            resize: both !important;
+            overflow: hidden !important;
+            z-index: 1000 !important;
+            transition: box-shadow 0.2s ease;
+        }
+
+        #player-container.windowed.docked {
+            bottom: 20px !important;
+            right: 20px !important;
+            left: auto !important;
+            top: auto !important;
+            width: 480px !important;
+            max-width: 90vw !important;
+        }
+
+        #player-container.windowed .top-bar {
+            cursor: grab;
+            user-select: none;
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(15, 23, 42, 0.8) 100%);
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            opacity: 1 !important;
+            transform: none !important;
+            pointer-events: auto !important;
+        }
+
+        #player-container.windowed .top-bar:active {
+            cursor: grabbing;
+        }
+
+        body.kiosk-drag-active {
+            user-select: none !important;
+            cursor: grabbing !important;
+        }
+
+        body.kiosk-drag-active iframe,
+        body.kiosk-drag-active video {
+            pointer-events: none !important;
+        }
+
+        body.kiosk-resize-active {
+            user-select: none !important;
+            cursor: se-resize !important;
+        }
+
+        body.kiosk-resize-active iframe,
+        body.kiosk-resize-active video {
+            pointer-events: none !important;
+        }
+
+        #kiosk-resize-grip {
+            display: none;
+            position: absolute;
+            right: 2px;
+            bottom: 2px;
+            width: 24px;
+            height: 24px;
+            cursor: se-resize;
+            user-select: none;
+            z-index: 200;
+            color: rgba(255, 255, 255, 0.65);
+            font-size: 15px;
+            align-items: center;
+            justify-content: center;
+            line-height: 1;
+            pointer-events: auto;
+            border-radius: 4px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        #player-container.windowed #kiosk-resize-grip {
+            display: flex;
+        }
+
+        .window-drag-pill {
+            display: none;
+            background: rgba(59, 130, 246, 0.25);
+            border: 1px dashed rgba(96, 165, 250, 0.6);
+            border-radius: 6px;
+            padding: 2px 7px;
+            font-size: 11px;
+            color: #93c5fd;
+            align-items: center;
+            gap: 4px;
+            cursor: move;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        #player-container.windowed .window-drag-pill {
+            display: inline-flex;
+        }
+
+        .window-controls-bar {
+            display: none;
+            align-items: center;
+            gap: 4px;
+            margin-left: auto;
+            flex-shrink: 0;
+        }
+
+        #player-container.windowed .window-controls-bar {
+            display: flex;
+        }
+
+        .win-btn {
+            padding: 3px 6px;
+            font-size: 10px;
+            font-weight: 600;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: #cbd5e1;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .win-btn:hover {
+            background: rgba(255, 255, 255, 0.18);
+            color: #fff;
+        }
+    </style>
+</head>
+<body id="app-body" onclick="handleUserInteraction()">
+
+<div id="player-container">
+    <video id="video-player-a" class="kiosk-video active" playsinline webkit-playsinline autoplay muted preload="auto" crossorigin="anonymous"></video>
+    <video id="video-player-b" class="kiosk-video preload" playsinline webkit-playsinline muted preload="auto" crossorigin="anonymous"></video>
+    <iframe id="iframe-player" style="display: none;" allow="autoplay; fullscreen"></iframe>
+
+    <!-- Drag/Resize Pointer Shield -->
+    <div id="drag-shield" style="display: none; position: absolute; inset: 0; z-index: 999; cursor: inherit;"></div>
+    <!-- Corner Resize Grip Handle -->
+    <div id="kiosk-resize-grip" title="Drag corner to resize player window">⇲</div>
+
+    <!-- Always-On Persistent Timer HUD + Provider Tag -->
+    <div class="persistent-hud-container" id="persistentHudContainer">
+        <div class="persistent-timer-hud" id="persistentTimerHud" onclick="event.stopPropagation()">
+            <span class="hud-dot"></span>
+            <span id="hudChannelBadge" style="font-family: var(--font-mono); font-size: 0.68rem; color: #94a3b8;">1/--</span>
+            <span id="hudCountdownText" style="font-family: var(--font-mono); font-weight: 700; font-size: 0.75rem; color: #38bdf8;">-- left</span>
+            <button class="hud-reload-btn" id="hudPopoutBtn" onclick="openDesktopPopupWindow(event)" title="Pop out into separate OS desktop window (P)">🗔</button>
+            <button class="hud-reload-btn" id="hudWindowedBtn" onclick="toggleWindowedMode(event)" title="Toggle Windowed / Floating Mode (W)">🗗</button>
+            <button class="hud-reload-btn" onclick="reloadPage(event)" title="Reload Page">🔄</button>
+            <button class="hud-reload-btn" onclick="toggleFullscreen(event)" title="Fullscreen">⛶</button>
+        </div>
+        <div class="hud-provider-tag" id="hudProviderTag" onclick="event.stopPropagation()" title="Active Provider">
+            <span style="font-size: 0.65rem;">📺</span>
+            <span id="hudProviderName">--</span>
+        </div>
+        <div class="hud-provider-tag hud-program-tag" id="hudProgramTag" onclick="event.stopPropagation()" title="Now on this channel (TV guide)" hidden>
+            <span style="font-size: 0.65rem;">🗓</span>
+            <span id="hudProgramName"></span>
+        </div>
+    </div>
+
+    <!-- Compact Unmute Pill -->
+    <div class="unmute-pill" id="unmutePill" onclick="enableAudio(event)">
+        <span style="font-size: 1.1rem;">🔇</span>
+        <span style="font-size: 0.85rem; font-weight: 600; color: #38bdf8;">Click anywhere to unmute audio</span>
+        <button onclick="dismissUnmutePill(event)" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.9rem; margin-left: 4px;">✕</button>
+    </div>
+
+    <!-- Error Toast -->
+    <div class="error-toast" id="errorToast">
+        ⚠️ Stream unreachable. Auto-skipping to next channel...
+    </div>
+
+    <!-- Top Bar -->
+    <div class="top-bar" id="kioskTopBar">
+        <!-- Draggable window pill (visible in Windowed mode) -->
+        <div class="window-drag-pill" id="windowDragPill" title="Click & Drag to move kiosk window anywhere">
+            <span style="font-size: 13px;">✥</span>
+            <span style="font-weight: 700; font-size: 10px; letter-spacing: 0.04em;">DRAG</span>
+        </div>
+
+        <div class="top-actions">
+            <button class="btn" id="desktopPopoutBtn" onclick="openDesktopPopupWindow(event)" title="Pop out into separate OS desktop window outside the browser (P)">🗔 Popout Window</button>
+            <button class="btn" id="windowedModeBtn" onclick="toggleWindowedMode(event)" title="Toggle Resizable & Movable Window (W)">🗗 Windowed</button>
+            <button class="btn" id="modeSwitchBtn" onclick="switchPlaylistMode(event)">🌐 Kiosk (YouTube)</button>
+            <button class="btn" id="topCcBtn" onclick="toggleClosedCaptions(event)" title="Closed Captioning / Subtitles (C)">💬 CC: OFF</button>
+            <button class="btn" onclick="openDrawer(event)">📁 Channel List (<span id="totalChannelsCount">0</span>)</button>
+            <button class="btn btn-icon" onclick="reloadPage(event)" title="Reload Page">🔄</button>
+            <a href="/stream-iptv/logout" class="btn" style="color: #f87171; border-color: rgba(239, 68, 68, 0.4);" onclick="event.stopPropagation()">🚪 Logout</a>
+        </div>
+        <div class="channel-info">
+            <div class="live-badge"><div class="pulse-dot"></div> LIVE</div>
+            <div id="temporaryScheduleBadge" style="display: none; align-items: center; gap: 4px; background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); padding: 3px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;">🕒 Temp Only</div>
+            <div id="quietHoursBadge" style="display: none; align-items: center; gap: 4px; background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); padding: 3px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600;">🌙 Quiet Hours (Muted)</div>
+            <div>
+                <div class="channel-title" id="channelName">Loading IPTV Stream...</div>
+                <div class="channel-program" id="channelProgram" hidden></div>
+                <div class="channel-meta" id="channelMeta">Channel 1 of -- • Auto-rotating</div>
+            </div>
+        </div>
+
+        <!-- Window Sizing & Dock Controls (Visible in Windowed Mode) -->
+        <div class="window-controls-bar" id="windowControlsBar" onclick="event.stopPropagation()">
+            <button type="button" class="win-btn" onclick="openDesktopPopupWindow(event)" title="Pop out into separate OS desktop window (P)">🗔 OS Window</button>
+            <button type="button" class="win-btn" onclick="setKioskWindowSize('sm', event)" title="Small: 480px">➖ Sm</button>
+            <button type="button" class="win-btn" onclick="setKioskWindowSize('md', event)" title="Medium: 760px">⛶ Md</button>
+            <button type="button" class="win-btn" onclick="setKioskWindowSize('lg', event)" title="Large: 1040px">➕ Lg</button>
+            <button type="button" class="win-btn" id="winDockBtn" onclick="toggleKioskWindowDock(event)" title="Dock to bottom corner">🗗 Dock</button>
+            <button type="button" class="win-btn" id="winCenterBtn" onclick="centerKioskWindow(event)" title="Center on screen">🎯 Center</button>
+            <button type="button" class="win-btn" id="winMaxBtn" onclick="toggleWindowedMode(event)" title="Maximize / Return to Fullscreen">🗖</button>
+        </div>
+    </div>
+
+    <!-- Bottom Bar -->
+    <div class="bottom-bar">
+        <div class="progress-bar-container">
+            <div class="progress-bar-fill" id="progressFill"></div>
+        </div>
+
+        <div class="controls-row">
+            <!-- Playback Controls -->
+            <div class="playback-buttons">
+                <button class="btn btn-icon" onclick="prevStream(event)" title="Previous Channel">⏮️</button>
+                <button class="btn btn-icon" id="playPauseBtn" onclick="togglePlayPause(event)" title="Pause/Resume Rotation">⏸️</button>
+                <button class="btn btn-icon" onclick="nextStream(event)" title="Next Channel">⏭️</button>
+                <button class="btn btn-icon" id="shuffleBtn" onclick="toggleShuffle(event)" title="Shuffle Playlist">🔀</button>
+                <button class="btn btn-icon btn-active" id="normalizerBtn" onclick="toggleNormalizer(event)" title="Auto Volume Leveling: ON (Balanced)">🎚️</button>
+                <button class="btn btn-icon" id="muteBtn" onclick="toggleMute(event)" title="Mute/Unmute (M)">🔊</button>
+                <button class="btn btn-icon" id="ccBtn" onclick="toggleClosedCaptions(event)" title="Closed Captioning / Subtitles (C)">💬</button>
+                <div class="volume-container" style="display: flex; align-items: center; gap: 6px; background: rgba(15, 23, 42, 0.6); padding: 4px 10px; border-radius: 10px; border: 1px solid var(--overlay-border);" onclick="event.stopPropagation()">
+                    <input type="range" id="volumeSlider" min="0" max="100" value="100" oninput="setVolume(this.value)" style="width: 85px; accent-color: var(--accent-blue); cursor: pointer;" title="Default Volume (Arrow Up / Down)">
+                    <span id="volumeValue" style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); min-width: 34px; text-align: right;">100%</span>
+                </div>
+                <button class="btn btn-icon" id="bottomPopoutBtn" onclick="openDesktopPopupWindow(event)" title="Pop out into separate OS desktop window (P)">🗔</button>
+                <button class="btn btn-icon" id="bottomWindowedBtn" onclick="toggleWindowedMode(event)" title="Windowed / Movable Mode (W)">🗗</button>
+                <button class="btn btn-icon" onclick="reloadPage(event)" title="Reload Page">🔄</button>
+                <button class="btn btn-icon" onclick="toggleFullscreen(event)" title="Fullscreen">⛶</button>
+            </div>
+
+            <div class="playlist-type-group" onclick="event.stopPropagation()">
+                <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted);">Category</span>
+                <span class="playlist-type-status" id="playlistTypeStatus">Playing: All</span>
+                <button class="playlist-type-btn active" data-playlist-type="all" onclick="setPlaylistTypeFilter('all')">All</button>
+                <button class="playlist-type-btn" data-playlist-type="permanent" onclick="setPlaylistTypeFilter('permanent')">Permanent</button>
+                <button class="playlist-type-btn" data-playlist-type="temporary" onclick="setPlaylistTypeFilter('temporary')">Temporary</button>
+                <button class="playlist-type-btn" data-playlist-type="both" onclick="setPlaylistTypeFilter('both')">Both</button>
+            </div>
+
+            <!-- Rotation Speed Controller & Provider -->
+            <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 4px;" onclick="event.stopPropagation()">
+                <div id="kioskProviderTag" style="display: flex; align-items: center; gap: 5px; font-size: 0.72rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 6px; padding: 2px 8px;">
+                    <span style="font-size: 0.7rem;">📺</span>
+                    <span id="kioskProviderName">Provider: --</span>
+                </div>
+                <div class="interval-group">
+                    <span class="interval-label">⏱️ Rotate Every:</span>
+                    <button class="interval-btn" data-sec="5" onclick="setIntervalSeconds(5)">5s</button>
+                    <button class="interval-btn" data-sec="10" onclick="setIntervalSeconds(10)">10s</button>
+                    <button class="interval-btn" data-sec="15" onclick="setIntervalSeconds(15)">15s</button>
+                    <button class="interval-btn" data-sec="30" onclick="setIntervalSeconds(30)">30s</button>
+                    <button class="interval-btn" data-sec="60" onclick="setIntervalSeconds(60)">1m</button>
+                    <button class="interval-btn" data-sec="120" onclick="setIntervalSeconds(120)">2m</button>
+                    <button class="interval-btn" data-sec="300" onclick="setIntervalSeconds(300)">5m</button>
+                    <button class="interval-btn" data-sec="600" onclick="setIntervalSeconds(600)">10m</button>
+                    <button class="interval-btn active" data-sec="900" onclick="setIntervalSeconds(900)">15m</button>
+                    <button class="interval-btn" data-sec="1800" onclick="setIntervalSeconds(1800)">30m</button>
+                    <button class="interval-btn" data-sec="3600" onclick="setIntervalSeconds(3600)">1h</button>
+                    <input type="number" class="interval-input" id="customIntervalInput" min="2" max="86400" placeholder="Sec" value="900" onchange="setIntervalSeconds(this.value)">
+                    <span style="font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); min-width: 75px; text-align: right;" id="countdownText">15m left</span>
+                </div>
+            </div>
+
+            <!-- Navigation Links -->
+            <div class="nav-actions" style="display: flex; align-items: center; gap: 0.5rem;">
+                <button type="button" class="btn" onclick="openTelemetryModal(event)" style="font-size: 0.75rem; padding: 4px 8px; color: #60a5fa; border-color: rgba(96, 165, 250, 0.4);" title="View Client Logs & Telemetry Diagnostics">📋 Logs</button>
+                <a href="/stream-iptv/logout" class="btn" style="color: #f87171; border-color: rgba(239, 68, 68, 0.4);" onclick="event.stopPropagation()">🚪 Logout</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Channel Drawer -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer(event)"></div>
+<div class="drawer" id="channelDrawer" onclick="event.stopPropagation()">
+    <div class="drawer-header">
+        <h3 style="font-size: 1.1rem; font-weight: 700;">📺 Active Playlist</h3>
+        <button class="btn btn-icon" onclick="closeDrawer(event)">✕</button>
+    </div>
+    <div class="drawer-search">
+        <input type="text" id="channelSearch" placeholder="Search channels..." onkeyup="filterChannels()">
+    </div>
+    <div class="channel-list" id="channelList">
+        <!-- Rendered dynamically -->
+    </div>
+    <div class="drawer-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--overlay-border); display: flex; gap: 0.75rem;">
+        <button type="button" class="btn" onclick="openTelemetryModal(event)" style="color: #60a5fa; border-color: rgba(96, 165, 250, 0.4);">📋 Diagnostics</button>
+        <a href="/stream-iptv/logout" class="btn" style="flex: 1; justify-content: center; color: #f87171; border-color: rgba(239, 68, 68, 0.4);" onclick="event.stopPropagation()">🚪 Logout</a>
+    </div>
+</div>
+
+<!-- Client Logs & Telemetry Modal -->
+<div id="telemetryModal" class="drawer-overlay" style="display: none; align-items: center; justify-content: center; z-index: 10000; background: rgba(0, 0, 0, 0.75);" onclick="closeTelemetryModal(event)">
+    <div style="background: #0f172a; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 12px; max-width: 700px; width: 92%; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 40px rgba(0,0,0,0.8);" onclick="event.stopPropagation()">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid rgba(255, 255, 255, 0.1); background: rgba(30, 41, 59, 0.8);">
+            <div style="display: flex; align-items: center; gap: 8px; font-weight: 700; color: #f8fafc; font-size: 0.95rem;">
+                <span>📡</span> Client Telemetry & Diagnostic Logs
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <button type="button" class="btn" onclick="sendTestLogPing()" style="font-size: 0.72rem; padding: 3px 8px; color: #34d399; border-color: rgba(52, 211, 153, 0.4);">🧪 Test Log</button>
+                <button type="button" class="btn" onclick="closeTelemetryModal(event)" style="font-size: 0.75rem; padding: 3px 8px;">✕</button>
+            </div>
+        </div>
+        <div style="padding: 10px 18px; font-size: 0.75rem; color: #94a3b8; background: rgba(15, 23, 42, 0.9); border-bottom: 1px solid rgba(255, 255, 255, 0.05); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px;">
+            <span>Client ID: <strong id="telemetryClientIdDisplay" style="color: #60a5fa; font-family: monospace;">--</strong></span>
+            <span>Remote Endpoint: <strong style="color: #34d399;">/api/player/log</strong></span>
+        </div>
+        <div id="telemetryLogsList" style="flex: 1; overflow-y: auto; padding: 14px 18px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; display: flex; flex-direction: column; gap: 8px;">
+            <div style="color: #64748b; text-align: center; padding: 20px;">No logs recorded yet.</div>
+        </div>
+        <div style="padding: 10px 18px; border-top: 1px solid rgba(255, 255, 255, 0.1); display: flex; justify-content: space-between; align-items: center; background: rgba(30, 41, 59, 0.8);">
+            <span style="font-size: 0.7rem; color: #64748b;">Telemetry continuously logs errors, stalls, and browser codec events to the server.</span>
+            <button type="button" class="btn" onclick="closeTelemetryModal(event)" style="font-size: 0.75rem; padding: 4px 12px;">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Sync telemetry: the server compares these against its own copy on each heartbeat
+const KIOSK_BUILD = "{{ kiosk_build }}";
+let lastPlaylistHash = null;    // playlist_hash of the last playlist this kiosk loaded
+let lastPlaylistQuery = null;   // the query that loaded it, so the server can rebuild it
+let pendingBuildReload = false; // server has a newer kiosk.html: reload at the next channel switch
+
+function getApiUrl(endpoint) {
+    const cleanEndpoint = endpoint.replace(/^\//, '');
+    let base = window.location.pathname.startsWith('/stream-iptv') ? '/stream-iptv/' : '/';
+    return base + cleanEndpoint;
+}
+
+// Persistent Client ID for telemetry reporting
+let myClientId = localStorage.getItem('kiosk_client_id');
+if (!myClientId) {
+    myClientId = 'kiosk_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
+    localStorage.setItem('kiosk_client_id', myClientId);
+}
+
+// Client Telemetry & Remote Log Dispatcher
+const KioskTelemetry = {
+    clientId: myClientId,
+    queue: [],
+    timer: null,
+    recentLogs: [],
+    log(level, event, message, details = {}) {
+        const entry = {
+            timestamp: new Date().toISOString(),
+            client_id: this.clientId,
+            level: level || 'info',
+            event: event || 'log',
+            message: String(message || ''),
+            details: details || {},
+            channel_name: (typeof streams !== 'undefined' && streams && streams[currentIndex]) ? (streams[currentIndex].name || streams[currentIndex].title || '') : '',
+            channel_url: (typeof streams !== 'undefined' && streams && streams[currentIndex]) ? (streams[currentIndex].url || '') : '',
+            active_slot: typeof activeSlot !== 'undefined' ? activeSlot : 'A',
+            user_agent: navigator.userAgent
+        };
+        this.recentLogs.unshift(entry);
+        if (this.recentLogs.length > 50) this.recentLogs.pop();
+        this.queue.push(entry);
+        updateTelemetryModalView();
+
+        if (level === 'error' || this.queue.length >= 5) {
+            this.flush();
+        } else if (!this.timer) {
+            this.timer = setTimeout(() => this.flush(), 2500);
+        }
+    },
+    flush() {
+        if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+        if (this.queue.length === 0) return;
+        const toSend = [...this.queue];
+        this.queue = [];
+        const payload = JSON.stringify({ client_id: this.clientId, logs: toSend });
+        try {
+            if (navigator.sendBeacon) {
+                const blob = new Blob([payload], { type: 'application/json' });
+                if (!navigator.sendBeacon(getApiUrl('api/player/log'), blob)) {
+                    fetch(getApiUrl('api/player/log'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: payload,
+                        keepalive: true
+                    }).catch(() => {});
+                }
+            } else {
+                fetch(getApiUrl('api/player/log'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: payload,
+                    keepalive: true
+                }).catch(() => {});
+            }
+        } catch (e) {}
+    }
+};
+
+window.addEventListener('error', function(e) {
+    KioskTelemetry.log('error', 'uncaught_exception', e.message || 'JavaScript Error', {
+        filename: e.filename,
+        lineno: e.lineno,
+        colno: e.colno,
+        stack: e.error ? e.error.stack : null
+    });
+});
+window.addEventListener('unhandledrejection', function(e) {
+    const reason = e.reason;
+    KioskTelemetry.log('error', 'unhandled_rejection', reason ? (reason.message || String(reason)) : 'Unhandled Promise Rejection', {
+        stack: reason && reason.stack ? reason.stack : null
+    });
+});
+
+function openTelemetryModal(e) {
+    if (e) e.stopPropagation();
+    const modal = document.getElementById('telemetryModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        const idDisplay = document.getElementById('telemetryClientIdDisplay');
+        if (idDisplay) idDisplay.innerText = myClientId;
+        updateTelemetryModalView();
+    }
+}
+
+function closeTelemetryModal(e) {
+    if (e) e.stopPropagation();
+    const modal = document.getElementById('telemetryModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function sendTestLogPing() {
+    KioskTelemetry.log('info', 'manual_test_ping', 'Manual test diagnostic ping triggered from kiosk client', {
+        screen: `${window.innerWidth}x${window.innerHeight}`,
+        devicePixelRatio: window.devicePixelRatio
+    });
+    showErrorToast('✅ Test log sent to server');
+}
+
+function updateTelemetryModalView() {
+    const list = document.getElementById('telemetryLogsList');
+    if (!list) return;
+    if (KioskTelemetry.recentLogs.length === 0) {
+        list.innerHTML = '<div style="color: #64748b; text-align: center; padding: 20px;">No logs recorded yet.</div>';
+        return;
+    }
+    let html = '';
+    KioskTelemetry.recentLogs.forEach(item => {
+        const color = item.level === 'error' ? '#f87171' : (item.level === 'warn' ? '#fbbf24' : '#60a5fa');
+        const bg = item.level === 'error' ? 'rgba(239, 68, 68, 0.1)' : (item.level === 'warn' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(59, 130, 246, 0.1)');
+        const timeStr = item.timestamp ? item.timestamp.substring(11, 19) : '--';
+        html += `
+            <div style="background: ${bg}; border-left: 3px solid ${color}; padding: 6px 10px; border-radius: 4px;">
+                <div style="display: flex; justify-content: space-between; color: ${color}; font-weight: 600; font-size: 0.72rem;">
+                    <span>[${item.level.toUpperCase()}] ${item.event}</span>
+                    <span style="color: #64748b;">${timeStr}</span>
+                </div>
+                <div style="color: #e2e8f0; margin-top: 2px;">${item.message}</div>
+                ${item.channel_name ? `<div style="color: #94a3b8; font-size: 0.68rem; margin-top: 2px;">📺 ${item.channel_name}</div>` : ''}
+            </div>
+        `;
+    });
+    list.innerHTML = html;
+}
+
+let streams = [];
+let currentIndex = 0;
+let rotationInterval = 900;
+let remainingTime = 900;
+let timerId = null;
+let isPaused = false;
+let isShuffle = true;
+let shuffleDeck = [];
+let playedInCurrentCycle = new Set();
+
+function saveShuffleState() {
+    try {
+        localStorage.setItem('kiosk_shuffle_deck', JSON.stringify(shuffleDeck));
+        localStorage.setItem('kiosk_shuffle_played', JSON.stringify(Array.from(playedInCurrentCycle)));
+    } catch (e) {}
+}
+
+function loadShuffleState() {
+    try {
+        const storedDeck = localStorage.getItem('kiosk_shuffle_deck');
+        const storedPlayed = localStorage.getItem('kiosk_shuffle_played');
+        if (storedDeck) {
+            const parsed = JSON.parse(storedDeck);
+            if (Array.isArray(parsed)) {
+                shuffleDeck = parsed.filter(i => typeof i === 'number' && i >= 0 && i < streams.length);
+            }
+        }
+        if (storedPlayed) {
+            const parsedPlayed = JSON.parse(storedPlayed);
+            if (Array.isArray(parsedPlayed)) {
+                playedInCurrentCycle = new Set(parsedPlayed.filter(i => typeof i === 'number' && i >= 0 && i < streams.length));
+            }
+        }
+    } catch (e) {}
+}
+
+function getActivePool() {
+    if (!Array.isArray(streams)) return [];
+    let pool = [];
+    for (let i = 0; i < streams.length; i++) {
+        if (typeof isStreamActiveNow === 'function' ? isStreamActiveNow(streams[i]) : !streams[i].offline) {
+            pool.push(i);
+        }
+    }
+    return pool;
+}
+
+function shuffleArray(arr) {
+    let a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+// Anti-Subscription Collision: Identify upstream IPTV subscription provider
+// Canonical subscription key (mirrors stream_iptv/anti_collision.py): URL first, then normalized label,
+// so aliases like "Tubi" / "Tubi TV" collapse into one provider.
+const AC_URL_RULES = [
+    [['tubi.io', 'tubitv.com', 'tubi.video'], 'Tubi TV'],
+    [['pluto.tv', 'jmp2.uk'], 'Pluto TV'],
+    [['youtube.com', 'youtu.be', 'googlevideo.com'], 'YouTube'],
+];
+const AC_LABEL_RULES = [
+    ['primary provider', 'Primary Provider'],
+    ['tubi', 'Tubi TV'], ['pluto', 'Pluto TV'], ['youtube', 'YouTube'],
+];
+const AC_GENERIC = new Set(['', 'iptv', 'live tv', 'stream', 'unknown', 'other', 'direct']);
+
+function getStreamProvider(s) {
+    if (!s) return 'Unknown';
+    const u = (s.url || '').toLowerCase();
+    for (const [needles, canon] of AC_URL_RULES) {
+        if (needles.some(n => u.includes(n))) return canon;
+    }
+    const label = String(s.provider || '').replace(/[^\w\s.:-]/gu, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!AC_GENERIC.has(label)) {
+        for (const [needle, canon] of AC_LABEL_RULES) {
+            if (label.includes(needle)) return canon;
+        }
+        return String(s.provider).trim();
+    }
+    try { const h = new URL(s.url).host.toLowerCase(); if (h) return h; } catch (e) {}
+    if (s.category && s.category.trim()) return s.category.trim();
+    return 'Other';
+}
+
+// Build interleaved deck where no two adjacent channels share the same provider.
+// seedProvider = provider currently playing, so deck[0] never collides with it.
+function buildAntiCollisionDeck(indices, seedProvider = '') {
+    if (!indices || indices.length === 0) return [];
+    const groups = {};
+    indices.forEach(idx => {
+        const p = getStreamProvider(streams[idx]);
+        if (!groups[p]) groups[p] = [];
+        groups[p].push(idx);
+    });
+    Object.keys(groups).forEach(p => {
+        groups[p] = shuffleArray(groups[p]);
+    });
+    const deck = [];
+    const deckProv = [];
+    let lastP = seedProvider || '';
+    while (true) {
+        const availableProviders = Object.keys(groups).filter(p => groups[p].length > 0 && p !== lastP);
+        if (availableProviders.length === 0) break;
+        // Most remaining first (keeps it feasible); random tie-break keeps shuffle feel
+        const maxLen = Math.max(...availableProviders.map(p => groups[p].length));
+        const top = availableProviders.filter(p => groups[p].length === maxLen);
+        const chosenProv = top[Math.floor(Math.random() * top.length)];
+        deck.push(groups[chosenProv].shift());
+        deckProv.push(chosenProv);
+        lastP = chosenProv;
+    }
+    // Leftovers (single dominant provider): slot into gaps between two different providers
+    Object.keys(groups).forEach(p => {
+        while (groups[p].length > 0) {
+            const idx = groups[p].shift();
+            let placed = false;
+            for (let pos = 0; pos <= deck.length; pos++) {
+                const left = pos > 0 ? deckProv[pos - 1] : (seedProvider || null);
+                const right = pos < deck.length ? deckProv[pos] : null;
+                if (left !== p && right !== p) {
+                    deck.splice(pos, 0, idx);
+                    deckProv.splice(pos, 0, p);
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed) { deck.push(idx); deckProv.push(p); }
+        }
+    });
+    return deck;
+}
+
+// Initial start or shuffle toggle: current playing channel is channel 1 of this cycle
+function initShuffleFromCurrent(currentPlayingIdx = -1) {
+    const pool = getActivePool();
+    if (pool.length <= 1) {
+        shuffleDeck = [];
+        playedInCurrentCycle = new Set(pool);
+        saveShuffleState();
+        return currentPlayingIdx >= 0 ? currentPlayingIdx : (pool[0] ?? 0);
+    }
+    const firstPick = (currentPlayingIdx >= 0 && pool.includes(currentPlayingIdx))
+        ? currentPlayingIdx
+        : pool[Math.floor(Math.random() * pool.length)];
+    const remaining = pool.filter(idx => idx !== firstPick);
+    shuffleDeck = buildAntiCollisionDeck(remaining, getStreamProvider(streams[firstPick]));
+    playedInCurrentCycle = new Set([firstPick]);
+    saveShuffleState();
+    console.log(`[Kiosk Shuffle] New anti-collision cycle initialized! Started on ch ${firstPick + 1} ("${streams[firstPick]?.name || ''}"). Cycle: 1/${pool.length}, Deck remaining: ${shuffleDeck.length}`);
+    return firstPick;
+}
+
+// Transition from completed cycle to new cycle: pick first channel from pool (excluding the just finished channel and prioritizing different provider)
+function startNextShuffleCycle(previousFinishedIdx = -1) {
+    const pool = getActivePool();
+    if (pool.length <= 1) {
+        shuffleDeck = [];
+        playedInCurrentCycle = new Set(pool);
+        saveShuffleState();
+        return pool[0] ?? 0;
+    }
+    const prevProv = (previousFinishedIdx >= 0 && streams[previousFinishedIdx]) ? getStreamProvider(streams[previousFinishedIdx]) : '';
+    let firstCandidates = pool.filter(idx => idx !== previousFinishedIdx);
+    const diffProvCandidates = firstCandidates.filter(idx => getStreamProvider(streams[idx]) !== prevProv);
+    if (diffProvCandidates.length > 0) {
+        firstCandidates = diffProvCandidates;
+    }
+    const firstPick = firstCandidates[Math.floor(Math.random() * firstCandidates.length)];
+    const remaining = pool.filter(idx => idx !== firstPick);
+    shuffleDeck = buildAntiCollisionDeck(remaining, getStreamProvider(streams[firstPick]));
+    playedInCurrentCycle = new Set([firstPick]);
+    saveShuffleState();
+    console.log(`[Kiosk Shuffle] Fresh anti-collision cycle started! Next pick: ch ${firstPick + 1} ("${streams[firstPick]?.name || ''}"). Deck remaining: ${shuffleDeck.length}`);
+    return firstPick;
+}
+
+// Backward-compatible alias
+function initShuffleDeck(excludeIndex = -1) {
+    if (excludeIndex >= 0) {
+        return initShuffleFromCurrent(excludeIndex);
+    }
+    return startNextShuffleCycle(-1);
+}
+
+function markChannelPlayedInShuffle(index) {
+    if (!isShuffle) return;
+    const pos = shuffleDeck.indexOf(index);
+    if (pos !== -1) {
+        shuffleDeck.splice(pos, 1);
+    }
+    playedInCurrentCycle.add(index);
+    saveShuffleState();
+    console.log(`[Kiosk Shuffle] Playing ch ${index + 1} ("${streams[index]?.name || ''}"). Cycle progress: ${playedInCurrentCycle.size}/${streams.length} (Deck remaining: ${shuffleDeck.length})`);
+}
+let userAudioEnabled = true;
+let unmuteDismissed = false;
+let inactivityTimer = null;
+let quietHoursConfig = null;
+let temporaryScheduleConfig = null;
+let temporarySchedule2Config = null;
+let isManualOverride = false;
+let wasQuietHoursMuted = false;
+
+// Stall & Playback Watchdog State (Retry up to 3 times before advancing)
+let retryCount = 0;
+const MAX_RETRIES = 3;
+const NO_START_RETRY_SECONDS = 30;
+let lastVideoTime = -1;
+
+function checkSingleTemporaryWindowActive(cfg) {
+    if (!cfg || !cfg.enabled) return false;
+    const now = new Date();
+    
+    // Check optional date range
+    if (cfg.start_date) {
+        const sDate = new Date(cfg.start_date + "T00:00:00");
+        if (now < sDate) return false;
+    }
+    if (cfg.end_date) {
+        const eDate = new Date(cfg.end_date + "T23:59:59");
+        if (now > eDate) return false;
+    }
+    
+    // Check days of week (0=Sun..6=Sat or 0=Mon..6=Sun)
+    const currentDay = (now.getDay() + 6) % 7; // 0=Mon .. 6=Sun
+    if (Array.isArray(cfg.days) && cfg.days.length > 0) {
+        if (!cfg.days.includes(now.getDay()) && !cfg.days.includes(currentDay)) {
+            return false;
+        }
+    }
+    
+    const [sH, sM] = (cfg.start_time || "18:00").split(':').map(Number);
+    const [eH, eM] = (cfg.end_time || "22:00").split(':').map(Number);
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const startMins = (sH || 0) * 60 + (sM || 0);
+    const endMins = (eH || 0) * 60 + (eM || 0);
+    
+    if (startMins <= endMins) {
+        return currentMins >= startMins && currentMins < endMins;
+    } else {
+        return currentMins >= startMins || currentMins < endMins;
+    }
+}
+
+function getActiveTemporaryWindowNumber() {
+    if (checkSingleTemporaryWindowActive(temporaryScheduleConfig)) return 1;
+    if (checkSingleTemporaryWindowActive(temporarySchedule2Config)) return 2;
+    return null;
+}
+
+function getActiveTemporaryScheduleConfig() {
+    const winNum = getActiveTemporaryWindowNumber();
+    if (winNum === 1) return temporaryScheduleConfig;
+    if (winNum === 2) return temporarySchedule2Config;
+    return null;
+}
+
+function isTemporaryScheduleActiveNow() {
+    return getActiveTemporaryWindowNumber() !== null;
+}
+
+// Studio "play now" override ({mode, until}) from the server, or null to follow the schedule
+let playbackOverride = null;
+let lastPlaySlot = null;
+
+// Changes whenever what the kiosk should play changes: an override is set, changed or
+// expires, or a window starts or ends. The 4 s sync loop refetches the playlist then.
+function playSlotKey(override) {
+    if (override) return `override:${override.mode}:${override.until}`;
+    return `window:${getActiveTemporaryWindowNumber() ?? 'none'}`;
+}
+
+function updateTemporarySchedulePlayerState() {
+    const winNum = getActiveTemporaryWindowNumber();
+    const activeCfg = getActiveTemporaryScheduleConfig();
+    const tempBadge = document.getElementById('temporaryScheduleBadge');
+    if (tempBadge && playbackOverride) {
+        const label = { rotation: 'Normal rotation', '1': 'Window 1', '2': 'Window 2', all: 'All channels' }[playbackOverride.mode] || playbackOverride.mode;
+        const until = new Date(playbackOverride.until * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        tempBadge.style.display = 'inline-flex';
+        tempBadge.innerText = `▶ Play now: ${label} until ${until}`;
+        return;
+    }
+    if (tempBadge) {
+        tempBadge.style.display = activeCfg ? 'inline-flex' : 'none';
+        if (activeCfg) {
+            tempBadge.innerText = `🕒 Win ${winNum} Temp Only (${activeCfg.start_time || "18:00"}-${activeCfg.end_time || "22:00"})`;
+        }
+    }
+}
+let stallTicks = 0;
+let noPictureTicks = 0;  // seconds the clock has advanced with no decoded video frame
+const NO_PICTURE_SKIP_SECONDS = 15;
+let staticPictureTicks = 0;  // seconds the clock has advanced with an unchanged picture
+let lastFrameLuma = null;
+const STATIC_PICTURE_SKIP_SECONDS = 30;
+const FRAME_W = 32, FRAME_H = 18;
+const frameCanvas = document.createElement('canvas');
+frameCanvas.width = FRAME_W;
+frameCanvas.height = FRAME_H;
+const frameCtx = frameCanvas.getContext('2d', { willReadFrequently: true });
+
+// Downscaled luma of the current frame, or null when it can't be read (cross-origin video)
+function sampleFrameLuma(video) {
+    try {
+        frameCtx.drawImage(video, 0, 0, FRAME_W, FRAME_H);
+        const px = frameCtx.getImageData(0, 0, FRAME_W, FRAME_H).data;
+        const luma = new Uint8Array(FRAME_W * FRAME_H);
+        for (let i = 0; i < luma.length; i++) {
+            luma[i] = (px[i * 4] * 77 + px[i * 4 + 1] * 150 + px[i * 4 + 2] * 29) >> 8;
+        }
+        return luma;
+    } catch (e) {
+        return null;
+    }
+}
+
+function resetFrameState() {
+    staticPictureTicks = 0;
+    lastFrameLuma = null;
+}
+let isRecovering = false;
+let watchdogInterval = null;
+
+function resetRetryState() {
+    retryCount = 0;
+    lastVideoTime = -1;
+    stallTicks = 0;
+    noPictureTicks = 0;
+    resetFrameState();
+    isRecovering = false;
+}
+
+function handlePlaybackFailure(reason) {
+    if (isRecovering) return;
+    isRecovering = true;
+    retryCount++;
+    console.warn(`[Kiosk] Playback stall/failure (${reason}). Retry attempt ${retryCount}/${MAX_RETRIES}`);
+    KioskTelemetry.log(retryCount >= MAX_RETRIES ? 'error' : 'warn', 'playback_failure', `Playback failure (${reason}) retry ${retryCount}/${MAX_RETRIES}`, {
+        reason: reason,
+        retry: retryCount,
+        max_retries: MAX_RETRIES,
+        video_time: lastVideoTime,
+        stall_ticks: stallTicks
+    });
+
+    if (retryCount <= MAX_RETRIES) {
+        showErrorToast(`⚠️ Video buffering (${reason}). Retrying (${retryCount}/${MAX_RETRIES})...`);
+        const hudCountdown = document.getElementById('hudCountdownText');
+        if (hudCountdown) hudCountdown.innerText = `Retry ${retryCount}/${MAX_RETRIES}`;
+        
+        setTimeout(() => {
+            loadStream(currentIndex, true);
+            lastVideoTime = -1;
+            stallTicks = 0;
+            setTimeout(() => { isRecovering = false; }, 2500);
+        }, 1500);
+    } else {
+        console.error(`[Kiosk] Stream unresponsive after ${MAX_RETRIES} retries. Advancing to next stream.`);
+        showErrorToast(`⚠️ Channel stalled. Skipping to next stream...`);
+        setTimeout(() => {
+            resetRetryState();
+            nextStream();
+        }, 1200);
+    }
+}
+
+function startPlaybackWatchdog() {
+    if (watchdogInterval) clearInterval(watchdogInterval);
+    watchdogInterval = setInterval(() => {
+        if (isPaused || isRecovering || streams.length === 0) return;
+
+        const stream = streams[currentIndex];
+        if (!stream) return;
+
+        // Web player pop-up: nothing to inspect; if someone closed it, move on
+        if (isWebpageStream(stream)) {
+            if (webpageWindow && webpageWindow.closed && !webpageClosingByKiosk) {
+                webpageWindow = null;
+                KioskTelemetry.log('info', 'webpage_closed', 'Web player window was closed, back to kiosk rotation');
+                nextStream();
+            }
+            return;
+        }
+
+        // For direct/HLS HTML5 video elements
+        if (!isEmbedStream(stream.url)) {
+            const player = getActivePlayer();
+            if (!player) return;
+
+            // If player is paused unexpectedly while rotation is active
+            if (player.paused && player.readyState >= 2 && !player.ended) {
+                player.play().catch(() => {});
+            }
+
+            const curr = player.currentTime;
+            // Never started (e.g. the upstream ended during a retry): the time sits at 0,
+            // lastVideoTime stays -1 and the frozen check below never arms
+            if (lastVideoTime < 0 && curr <= 0.1) {
+                stallTicks++;
+                if (stallTicks >= NO_START_RETRY_SECONDS) {
+                    stallTicks = 0;
+                    handlePlaybackFailure("no_start");
+                }
+            } else if (lastVideoTime >= 0 && Math.abs(curr - lastVideoTime) < 0.15) {
+                stallTicks++;
+                if (stallTicks === 10) {
+                    KioskTelemetry.log('warn', 'playback_stall', `Playback stalled for 10s at ${curr.toFixed(2)}s`, {
+                        current_time: curr,
+                        last_time: lastVideoTime
+                    });
+                }
+                const activeMpegts = activeSlot === 'A' ? mpegtsA : mpegtsB;
+                if (stallTicks === 7 && activeMpegts && activeMpegts._hasAudio && (curr === 0 || lastVideoTime <= 0.1) && typeof startKioskMpegts === 'function') {
+                    console.log("[Kiosk] Stream stuck at 0s waiting on audio packets. Fallback to video-only mode...");
+                    KioskTelemetry.log('warn', 'audio_hang_fallback', 'Stream stuck at 0s waiting on audio. Retrying video-only mode.');
+                    startKioskMpegts(activeSlot, player, false);
+                    stallTicks = 0;
+                    return;
+                }
+                if (stallTicks >= 30) {
+                    stallTicks = 0;
+                    handlePlaybackFailure("frozen_playback");
+                }
+            } else if (curr > 0) {
+                lastVideoTime = curr;
+                stallTicks = 0;
+                // Blank channel: time advances (audio plays) but the browser decodes no
+                // video, e.g. an unsupported codec. Retrying won't help, so move on.
+                if (player.videoWidth === 0) {
+                    noPictureTicks++;
+                    if (noPictureTicks >= NO_PICTURE_SKIP_SECONDS) {
+                        const activeMpegts = activeSlot === 'A' ? mpegtsA : mpegtsB;
+                        const mi = (activeMpegts && activeMpegts.mediaInfo) || {};
+                        KioskTelemetry.log('error', 'no_video', `No picture after ${NO_PICTURE_SKIP_SECONDS}s of playback, skipping`, {
+                            current_time: curr,
+                            video_codec: mi.videoCodec || null,
+                            audio_codec: mi.audioCodec || null
+                        });
+                        showErrorToast(`⚠️ No picture on this channel. Skipping to next stream...`);
+                        resetRetryState();
+                        nextStream();
+                        return;
+                    }
+                } else {
+                    noPictureTicks = 0;
+                    // "Channel temporarily unavailable" slates and black screens: the
+                    // clock runs but the picture never changes.
+                    const luma = sampleFrameLuma(player);
+                    if (luma && lastFrameLuma) {
+                        let diff = 0, sum = 0;
+                        for (let i = 0; i < luma.length; i++) {
+                            diff += Math.abs(luma[i] - lastFrameLuma[i]);
+                            sum += luma[i];
+                        }
+                        staticPictureTicks = diff / luma.length < 1.5 ? staticPictureTicks + 1 : 0;
+                        if (staticPictureTicks >= STATIC_PICTURE_SKIP_SECONDS) {
+                            const brightness = Math.round(sum / luma.length);
+                            KioskTelemetry.log('error', 'static_picture', `Picture unchanged for ${STATIC_PICTURE_SKIP_SECONDS}s (${brightness < 16 ? 'black screen' : 'still image / unavailable slate'}), skipping`, {
+                                current_time: curr,
+                                brightness: brightness
+                            });
+                            showErrorToast(`⚠️ Channel unavailable. Skipping to next stream...`);
+                            resetRetryState();
+                            nextStream();
+                            return;
+                        }
+                    }
+                    lastFrameLuma = luma;
+                }
+                // Only long clean playback clears retries: a dead channel can serve a
+                // looping placeholder clip that "plays" for minutes before freezing.
+                if (retryCount > 0 && curr > 1800) {
+                    retryCount = 0;
+                }
+            }
+        }
+    }, 1000);
+}
+
+function isQuietHoursNow() {
+    if (!quietHoursConfig || !quietHoursConfig.enabled) return false;
+    const now = new Date();
+    const currentDay = (now.getDay() + 6) % 7; // 0=Mon .. 6=Sun
+    if (Array.isArray(quietHoursConfig.days) && quietHoursConfig.days.length > 0) {
+        if (!quietHoursConfig.days.includes(now.getDay()) && !quietHoursConfig.days.includes(currentDay)) {
+            return false;
+        }
+    }
+    const [sH, sM] = (quietHoursConfig.start_time || "22:00").split(':').map(Number);
+    const [eH, eM] = (quietHoursConfig.end_time || "07:00").split(':').map(Number);
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+    const startMins = (sH || 0) * 60 + (sM || 0);
+    const endMins = (eH || 0) * 60 + (eM || 0);
+
+    if (startMins <= endMins) {
+        return currentMins >= startMins && currentMins < endMins;
+    } else {
+        return currentMins >= startMins || currentMins < endMins;
+    }
+}
+
+function updateQuietHoursPlayerState() {
+    const active = isQuietHoursNow();
+    const quietBadge = document.getElementById('quietHoursBadge');
+    if (quietBadge) {
+        quietBadge.style.display = active ? 'inline-flex' : 'none';
+        if (active && quietHoursConfig) {
+            quietBadge.innerText = `🌙 Quiet Hours (${quietHoursConfig.start_time}-${quietHoursConfig.end_time})`;
+        }
+    }
+    
+    if (active) {
+        if (!isManualOverride && userAudioEnabled) {
+            wasQuietHoursMuted = true;
+            userAudioEnabled = false;
+            const activePlayer = getActivePlayer();
+            if (activePlayer) {
+                activePlayer.muted = true;
+                activePlayer.volume = 0.0;
+            }
+            if (muteBtn) muteBtn.innerText = '🔇';
+        }
+    } else {
+        // Quiet hours ended or inactive
+        if (isManualOverride) {
+            isManualOverride = false;
+        }
+        if (wasQuietHoursMuted || (!isManualOverride && !userAudioEnabled && !urlParams.has('mute'))) {
+            wasQuietHoursMuted = false;
+            userAudioEnabled = true;
+            const activePlayer = getActivePlayer();
+            if (activePlayer) {
+                activePlayer.muted = false;
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
+            setVolume(currentVolume);
+            if (muteBtn) muteBtn.innerText = '🔊';
+            dismissUnmutePill();
+        }
+    }
+}
+
+// Dual Player State (A/B Seamless Pre-caching)
+let activeSlot = 'A'; // 'A' or 'B'
+let hlsA = null;
+let hlsB = null;
+let mpegtsA = null;
+let mpegtsB = null;
+let preloadedIndex = -1;
+let isPreloading = false;
+let isPreloadReady = false;
+
+const videoPlayerA = document.getElementById('video-player-a');
+const videoPlayerB = document.getElementById('video-player-b');
+const iframePlayer = document.getElementById('iframe-player');
+const progressFill = document.getElementById('progressFill');
+const countdownText = document.getElementById('countdownText');
+const channelName = document.getElementById('channelName');
+const channelMeta = document.getElementById('channelMeta');
+const playPauseBtn = document.getElementById('playPauseBtn');
+const unmutePill = document.getElementById('unmutePill');
+const muteBtn = document.getElementById('muteBtn');
+
+function getActivePlayer() {
+    return activeSlot === 'A' ? videoPlayerA : videoPlayerB;
+}
+
+function getPreloadPlayer() {
+    return activeSlot === 'A' ? videoPlayerB : videoPlayerA;
+}
+
+// Volume Controls & Persistence
+let currentVolume = parseInt(localStorage.getItem('kiosk_volume') || '100');
+let isNormalizerEnabled = true;
+if (localStorage.getItem('kiosk_normalizer') !== null) {
+    isNormalizerEnabled = localStorage.getItem('kiosk_normalizer') === 'true';
+}
+
+// Volume Normalization & Loudness Balancing
+// Standard Broadcast TV / Cable IPTV (MPEG-TS/HLS) is mastered at -24 LUFS (ATSC A/85 / EBU R128).
+// YouTube masters audio at -14 LUFS (+10 dB louder than broadcast television).
+// FAST services (Pluto TV / Tubi TV) typically hover around -20 to -22 LUFS.
+// When Auto Volume Leveling is active, calibrate each provider to match uniform broadcast loudness.
+const YOUTUBE_LOUDNESS_CALIBRATION = 0.45; // ~ -10.5 dB attenuation to match broadcast TV
+const FAST_LOUDNESS_CALIBRATION = 0.85;    // ~ -2.5 dB attenuation for FAST services
+
+function isEmbedStream(rawUrl) {
+    if (!rawUrl) return false;
+    let url = rawUrl.toLowerCase();
+    return url.includes('youtube.com/embed') || (url.includes('youtube.com/watch') && !url.includes('/player?url=')) || url.includes('youtu.be') || url.includes('youtube.com/live/');
+}
+
+function getStreamLevelingMultiplier(stream) {
+    if (!isNormalizerEnabled) {
+        return parseFloat(stream?.volume || stream?.gain || stream?.volume_multiplier) || 1.0;
+    }
+    
+    let multiplier = 1.0;
+    const url = (stream?.url || '').toLowerCase();
+    const provider = (stream?.provider || '').toLowerCase();
+    const type = (stream?.type || '').toLowerCase();
+    
+    // YouTube embeds / streams
+    if (isEmbedStream(url) || provider.includes('youtube') || type.includes('youtube') || url.includes('youtube') || url.includes('youtu.be')) {
+        multiplier = YOUTUBE_LOUDNESS_CALIBRATION;
+    } else if (provider.includes('pluto') || provider.includes('tubi')) {
+        multiplier = FAST_LOUDNESS_CALIBRATION;
+    }
+    
+    // Explicit per-stream gain/volume configured in playlist
+    const customGain = parseFloat(stream?.volume || stream?.gain || stream?.volume_multiplier);
+    if (!isNaN(customGain) && customGain > 0) {
+        multiplier *= customGain;
+    }
+    
+    return Math.max(0.05, Math.min(2.0, multiplier));
+}
+
+function applyStreamVolume(targetStream = null) {
+    const stream = targetStream || (Array.isArray(streams) && streams[currentIndex] ? streams[currentIndex] : null);
+    const multiplier = getStreamLevelingMultiplier(stream);
+    const url = (stream?.url || '').toLowerCase();
+    const isYt = stream ? (isEmbedStream(url) || (stream.provider || '').toLowerCase().includes('youtube') || url.includes('youtube') || url.includes('youtu.be')) : (iframePlayer && iframePlayer.style.display !== 'none');
+    
+    // 1. YouTube / Embed Iframe Player Volume
+    if (iframePlayer && iframePlayer.contentWindow) {
+        try {
+            if (!userAudioEnabled || currentVolume === 0) {
+                iframePlayer.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: 'mute',
+                    args: []
+                }), '*');
+            } else {
+                const effectiveYtVolume = Math.round(Math.max(0, Math.min(100, currentVolume * multiplier)));
+                iframePlayer.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: 'setVolume',
+                    args: [effectiveYtVolume]
+                }), '*');
+                iframePlayer.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: 'unMute',
+                    args: []
+                }), '*');
+            }
+        } catch(e) {}
+    }
+    
+    // 2. HTML5 Video Players (Slot A and B)
+    const effectiveDecimal = userAudioEnabled && currentVolume > 0
+        ? Math.max(0.0, Math.min(1.0, (currentVolume / 100.0) * (isYt ? 1.0 : multiplier)))
+        : 0.0;
+        
+    const activePlayer = getActivePlayer();
+    if (activePlayer) {
+        activePlayer.volume = effectiveDecimal;
+        if (userAudioEnabled && currentVolume > 0 && activePlayer.muted) {
+            activePlayer.muted = false;
+        }
+    }
+    const preloadPlayer = getPreloadPlayer();
+    if (preloadPlayer && !preloadPlayer.classList.contains('preload')) {
+        preloadPlayer.volume = effectiveDecimal;
+    }
+    
+    // 3. Update Mute Button State
+    if (muteBtn) {
+        if (!userAudioEnabled || currentVolume === 0 || (activePlayer && activePlayer.muted && !isYt)) {
+            muteBtn.innerText = '🔇';
+        } else {
+            muteBtn.innerText = '🔊';
+        }
+    }
+}
+
+function setVolume(val) {
+    currentVolume = parseInt(val);
+    if (isNaN(currentVolume)) currentVolume = 100;
+    currentVolume = Math.max(0, Math.min(100, currentVolume));
+    
+    localStorage.setItem('kiosk_volume', currentVolume);
+    
+    const slider = document.getElementById('volumeSlider');
+    if (slider) slider.value = currentVolume;
+    const valText = document.getElementById('volumeValue');
+    if (valText) valText.innerText = `${currentVolume}%`;
+    
+    applyStreamVolume();
+}
+
+// Closed Captioning (CC) / Subtitles State & Controls
+let isCcEnabled = localStorage.getItem('kiosk_cc_enabled') === 'true';
+
+function updateCcUi() {
+    const topCcBtn = document.getElementById('topCcBtn');
+    const ccBtn = document.getElementById('ccBtn');
+    if (topCcBtn) {
+        topCcBtn.innerText = isCcEnabled ? '💬 CC: ON' : '💬 CC: OFF';
+        if (isCcEnabled) {
+            topCcBtn.classList.add('btn-active');
+        } else {
+            topCcBtn.classList.remove('btn-active');
+        }
+    }
+    if (ccBtn) {
+        if (isCcEnabled) {
+            ccBtn.classList.add('btn-active');
+            ccBtn.title = 'Closed Captioning / Subtitles: ON (C)';
+        } else {
+            ccBtn.classList.remove('btn-active');
+            ccBtn.title = 'Closed Captioning / Subtitles: OFF (C)';
+        }
+    }
+}
+
+function applyCaptionsToElement(player) {
+    if (!player || !player.textTracks) return;
+    for (let i = 0; i < player.textTracks.length; i++) {
+        const track = player.textTracks[i];
+        if (track.kind === 'captions' || track.kind === 'subtitles') {
+            track.mode = isCcEnabled ? 'showing' : 'hidden';
+        }
+    }
+}
+
+function applyCaptionsState() {
+    updateCcUi();
+
+    // 1. Native HTML5 Video text tracks (Slot A and B)
+    applyCaptionsToElement(videoPlayerA);
+    applyCaptionsToElement(videoPlayerB);
+
+    // 2. HLS Subtitle Tracks
+    if (hlsA) {
+        try {
+            if (isCcEnabled) {
+                if (hlsA.subtitleTracks && hlsA.subtitleTracks.length > 0 && hlsA.subtitleTrack === -1) {
+                    hlsA.subtitleTrack = 0;
+                }
+            } else {
+                hlsA.subtitleTrack = -1;
+            }
+        } catch (e) {}
+    }
+    if (hlsB) {
+        try {
+            if (isCcEnabled) {
+                if (hlsB.subtitleTracks && hlsB.subtitleTracks.length > 0 && hlsB.subtitleTrack === -1) {
+                    hlsB.subtitleTrack = 0;
+                }
+            } else {
+                hlsB.subtitleTrack = -1;
+            }
+        } catch (e) {}
+    }
+
+    // 3. YouTube iframe embeds via postMessage
+    if (iframePlayer && iframePlayer.contentWindow) {
+        try {
+            iframePlayer.contentWindow.postMessage(JSON.stringify({
+                event: 'command',
+                func: isCcEnabled ? 'loadModule' : 'unloadModule',
+                args: ['captions']
+            }), '*');
+            if (isCcEnabled) {
+                iframePlayer.contentWindow.postMessage(JSON.stringify({
+                    event: 'command',
+                    func: 'setOption',
+                    args: ['captions', 'track', { languageCode: 'en' }]
+                }), '*');
+            }
+        } catch (e) {}
+    }
+}
+
+function toggleClosedCaptions(e) {
+    if (e) e.stopPropagation();
+    isCcEnabled = !isCcEnabled;
+    localStorage.setItem('kiosk_cc_enabled', isCcEnabled ? 'true' : 'false');
+    applyCaptionsState();
+    KioskTelemetry.log('info', 'toggle_captions', `Closed Captioning toggled ${isCcEnabled ? 'ON' : 'OFF'}`, { isCcEnabled });
+}
+
+// Attach automatic text track listeners to videoPlayerA and videoPlayerB
+if (videoPlayerA && videoPlayerA.textTracks) {
+    videoPlayerA.textTracks.addEventListener('addtrack', () => applyCaptionsToElement(videoPlayerA));
+}
+if (videoPlayerB && videoPlayerB.textTracks) {
+    videoPlayerB.textTracks.addEventListener('addtrack', () => applyCaptionsToElement(videoPlayerB));
+}
+
+// Initial UI sync for Closed Captioning
+updateCcUi();
+
+function isTsStream(s) {
+    if (!s) return false;
+    const u = (s.url || '').toLowerCase();
+    const p = (s.provider || '').toLowerCase();
+    const t = (s.type || '').toLowerCase();
+
+    // Explicitly exclude VOD series and movies (these are MP4 video files, NOT MPEG-TS live streams)
+    if (u.includes('/series/') || u.includes('/movie/') || u.endsWith('.mp4') || t === 'video' || t === 'mp4') {
+        return false;
+    }
+
+    // Xtream short form host/<user>/<pass>/<id> is a raw MPEG-TS stream
+    return u.includes('.ts') || t === 'ts' || /\/[^\/?]+\/[^\/?]+\/\d+(\?|$)/.test(u);
+}
+
+// Web Audio API Volume Normalization / Leveling Nodes
+let audioCtx = null;
+let sourceNodeA = null;
+let sourceNodeB = null;
+let compressorNode = null;
+let makeupGainNode = null;
+let channelGainNode = null;
+
+function initAudioNormalizer() {
+    return;
+}
+
+function reconnectAudioGraph() {
+    return;
+}
+
+function toggleNormalizer(e) {
+    if (e) e.stopPropagation();
+    isNormalizerEnabled = !isNormalizerEnabled;
+    localStorage.setItem('kiosk_normalizer', isNormalizerEnabled);
+    applyStreamVolume();
+    const btn = document.getElementById('normalizerBtn');
+    if (btn) {
+        btn.classList.toggle('btn-active', isNormalizerEnabled);
+        btn.title = `Auto Volume Leveling: ${isNormalizerEnabled ? 'ON (Balanced - YouTube & IPTV Level Match)' : 'OFF (Raw Volume)'}`;
+    }
+    showErrorToast(isNormalizerEnabled ? "🎚️ Auto Volume Leveling: ON (Balanced)" : "🎚️ Auto Volume Leveling: OFF (Raw Volume)");
+}
+
+
+function getStreamSource(rawUrl) {
+    if (!rawUrl) return '';
+    let url = rawUrl.trim();
+    if (url.includes('/player?') && url.includes('url=')) {
+        try {
+            const parsed = new URL(url, window.location.href);
+            const extracted = parsed.searchParams.get('url');
+            if (extracted) url = extracted;
+        } catch (e) {
+            const match = url.match(/[?&]url=([^&]+)/);
+            if (match) url = decodeURIComponent(match[1]);
+        }
+    }
+    // YouTube / embeds must not be proxied
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        return url;
+    }
+    // Already proxied
+    if (url.startsWith('/stream-iptv/api/proxy') || url.startsWith('api/proxy') || url.includes('/api/proxy?')) {
+        return url;
+    }
+    // Verified direct HTTPS CDNs with confirmed CORS support (fast path, bypasses proxy)
+    const isSafeDirectCdn = url.startsWith('https://') && 
+        (url.includes('akamaized.net') || url.includes('tubi.io') || url.includes('cloudfront.net'));
+    if (isSafeDirectCdn) {
+        return url;
+    }
+    // Safe-by-default: Proxy all external IPTV streams to eliminate Mixed Content, redirects, and CORS issues
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+        return getApiUrl(`api/proxy?url=${encodeURIComponent(url)}`);
+    }
+    return url;
+}
+
+function isEmbedStream(rawUrl) {
+    if (!rawUrl) return false;
+    let url = rawUrl.toLowerCase();
+    return url.includes('youtube.com/embed') || (url.includes('youtube.com/watch') && !url.includes('/player?url=')) || url.includes('youtu.be');
+}
+
+// Channels that play in the site's own web player (e.g. a Vidio subscription), shown in a
+// full-screen pop-up the kiosk opens and closes; the kiosk page keeps the countdown.
+function isWebpageStream(stream) {
+    if (!stream) return false;
+    const type = (stream.type || '').toLowerCase();
+    const url = (stream.url || '').toLowerCase();
+    return type === 'webpage' || /^https?:\/\/([a-z0-9-]+\.)*vidio\.com\//.test(url);
+}
+
+let webpageWindow = null;
+let webpageClosingByKiosk = false;
+
+function openWebpageWindow(stream) {
+    const features = `popup=yes,left=0,top=0,width=${screen.availWidth},height=${screen.availHeight},` +
+        'menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=yes';
+    webpageWindow = window.open(stream.url, 'IPTVKioskWebpage', features);
+    if (!webpageWindow) {
+        KioskTelemetry.log('error', 'webpage_blocked', `Pop-up blocked for ${stream.name || stream.url}; allow pop-ups for this site`, { url: stream.url });
+        showErrorToast('⚠️ Pop-up blocked. Allow pop-ups for this site to play web channels. Skipping...');
+        setTimeout(() => nextStream(), 3000);
+        return;
+    }
+    try { webpageWindow.focus(); } catch (e) {}
+    KioskTelemetry.log('info', 'webpage_opened', `Opened web player: ${stream.name || stream.url}`, { url: stream.url });
+}
+
+function closeWebpageWindow() {
+    if (!webpageWindow) return;
+    webpageClosingByKiosk = true;
+    try { if (!webpageWindow.closed) webpageWindow.close(); } catch (e) {}
+    webpageWindow = null;
+    webpageClosingByKiosk = false;
+    KioskTelemetry.log('info', 'webpage_closed', 'Closed web player, back to kiosk rotation');
+    try { window.focus(); } catch (e) {}
+}
+window.addEventListener('beforeunload', () => {
+    try { if (webpageWindow && !webpageWindow.closed) webpageWindow.close(); } catch (e) {}
+});
+
+function isStreamTemporary(s) {
+    if (!s || typeof s !== 'object') return false;
+    const stype = String(s.schedule_type || s.list_type || '').toLowerCase();
+    if (stype === 'temporary') return true;
+    if (s.temporary === true || s.is_temporary === true) return true;
+    const cat = String(s.category || '').trim().toLowerCase();
+    if (cat === 'temporary' || cat === 'temp' || cat.startsWith('temp')) return true;
+    if (s.start_date || s.end_date || s.start_time || s.end_time || s.expires_at) return true;
+    return false;
+}
+
+function isStreamForWindow(s, winNum) {
+    if (!s || typeof s !== 'object') return false;
+    if (s.schedule_window !== undefined && s.schedule_window !== null) {
+        return parseInt(s.schedule_window) === winNum;
+    }
+    const cfg = winNum === 1 ? temporaryScheduleConfig : temporarySchedule2Config;
+    if (cfg) {
+        if (cfg.start_time && s.start_time && cfg.start_time === s.start_time) return true;
+        if (cfg.end_time && s.end_time && cfg.end_time === s.end_time) return true;
+    }
+    return winNum === 1;
+}
+
+function isStreamActiveNow(s) {
+    if (!s || typeof s !== 'object') return true;
+    if (s.offline || s.is_offline) return false;
+    if (s.is_active_now !== undefined) return Boolean(s.is_active_now);
+    if (!isStreamTemporary(s)) return true;
+
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const nowDateStr = `${yyyy}-${mm}-${dd}`;
+    const currentMins = now.getHours() * 60 + now.getMinutes();
+
+    if (s.expires_at) {
+        try {
+            const exp = new Date(s.expires_at);
+            if (!isNaN(exp.getTime()) && now >= exp) return false;
+        } catch (e) {}
+    }
+    if (s.start_date && s.start_date.trim()) {
+        if (nowDateStr < s.start_date.trim().substring(0, 10)) return false;
+    }
+    if (s.end_date && s.end_date.trim()) {
+        if (nowDateStr > s.end_date.trim().substring(0, 10)) return false;
+    }
+    if (s.start_time && s.end_time && s.start_time.trim() && s.end_time.trim()) {
+        try {
+            const sParts = s.start_time.trim().split(':').map(Number);
+            const eParts = s.end_time.trim().split(':').map(Number);
+            const sMins = (sParts[0] || 0) * 60 + (sParts[1] || 0);
+            const eMins = (eParts[0] || 0) * 60 + (eParts[1] || 0);
+            if (sMins <= eMins) {
+                if (!(currentMins >= sMins && currentMins <= eMins)) return false;
+            } else {
+                if (!(currentMins >= sMins || currentMins <= eMins)) return false;
+            }
+        } catch (e) {}
+    }
+    return true;
+}
+
+function getNextIndex() {
+    if (!Array.isArray(streams) || streams.length <= 1) return currentIndex;
+
+    const currentStream = currentIndex >= 0 && currentIndex < streams.length ? streams[currentIndex] : null;
+    const currentProvider = currentStream ? getStreamProvider(currentStream) : '';
+
+    if (isShuffle) {
+        // Purge inactive/offline channels from upcoming deck
+        while (shuffleDeck.length > 0 && !isStreamActiveNow(streams[shuffleDeck[0]])) {
+            const dead = shuffleDeck.shift();
+            playedInCurrentCycle.add(dead);
+        }
+
+        // If deck is exhausted, all channels have been played! Start fresh cycle with zero repeat
+        if (shuffleDeck.length === 0) {
+            return startNextShuffleCycle(currentIndex);
+        }
+
+        // Anti-Collision: Find the first candidate in shuffleDeck from a DIFFERENT provider
+        let chosenDeckIdx = -1;
+        for (let i = 0; i < shuffleDeck.length; i++) {
+            const candIdx = shuffleDeck[i];
+            if (isStreamActiveNow(streams[candIdx])) {
+                const candProv = getStreamProvider(streams[candIdx]);
+                if (candProv !== currentProvider) {
+                    chosenDeckIdx = i;
+                    break;
+                }
+            }
+        }
+
+        if (chosenDeckIdx !== -1) {
+            const picked = shuffleDeck.splice(chosenDeckIdx, 1)[0];
+            shuffleDeck.unshift(picked);
+            return picked;
+        }
+
+        // Remaining deck is all the current provider: play it anyway so the cycle completes.
+        // Restarting the cycle here starved same-provider channels (e.g. 3 from one provider + 1 from another
+        // played the second provider every other slot). Back-to-back same provider is safe: preload is
+        // skipped for same-provider streams, so only one upstream connection is open.
+        return shuffleDeck[0];
+    }
+
+    // Sequential rotation: next active channel in playlist order. Skipping ahead to a
+    // different provider made unbalanced playlists ping-pong between two channels.
+    let nextIdx = (currentIndex + 1) % streams.length;
+    for (let attempts = 0; attempts < streams.length; attempts++) {
+        if (isStreamActiveNow(streams[nextIdx]) && nextIdx !== currentIndex) {
+            return nextIdx;
+        }
+        nextIdx = (nextIdx + 1) % streams.length;
+    }
+    return (currentIndex + 1) % streams.length;
+}
+
+function destroyPlayerSlot(slot) {
+    if (slot === 'A') {
+        videoPlayerA.onerror = null;
+        videoPlayerA.onstalled = null;
+        videoPlayerA.onwaiting = null;
+        videoPlayerA.onplaying = null;
+        videoPlayerA.ontimeupdate = null;
+        if (hlsA) {
+            try { hlsA.stopLoad(); hlsA.detachMedia(); hlsA.destroy(); } catch (e) {}
+            hlsA = null;
+        }
+        if (mpegtsA) {
+            try { mpegtsA.pause(); mpegtsA.unload(); mpegtsA.detachMediaElement(); mpegtsA.destroy(); } catch (e) {}
+            mpegtsA = null;
+        }
+        try { videoPlayerA.pause(); videoPlayerA.removeAttribute('src'); videoPlayerA.load(); } catch (e) {}
+    } else {
+        videoPlayerB.onerror = null;
+        videoPlayerB.onstalled = null;
+        videoPlayerB.onwaiting = null;
+        videoPlayerB.onplaying = null;
+        videoPlayerB.ontimeupdate = null;
+        if (hlsB) {
+            try { hlsB.stopLoad(); hlsB.detachMedia(); hlsB.destroy(); } catch (e) {}
+            hlsB = null;
+        }
+        if (mpegtsB) {
+            try { mpegtsB.pause(); mpegtsB.unload(); mpegtsB.detachMediaElement(); mpegtsB.destroy(); } catch (e) {}
+            mpegtsB = null;
+        }
+        try { videoPlayerB.pause(); videoPlayerB.removeAttribute('src'); videoPlayerB.load(); } catch (e) {}
+    }
+}
+
+// Parse Query Parameters & LocalStorage
+const urlParams = new URLSearchParams(window.location.search);
+const queryInterval = parseInt(urlParams.get('interval'));
+// If interval in URL is <= 30 (legacy test interval), treat as old test default and reset to 15m (900s)
+if (queryInterval && queryInterval > 30) {
+    rotationInterval = queryInterval;
+    localStorage.setItem('kiosk_rotation_interval', queryInterval.toString());
+} else if (localStorage.getItem('kiosk_rotation_interval')) {
+    const stored = parseInt(localStorage.getItem('kiosk_rotation_interval'));
+    if (stored && stored > 30) {
+        rotationInterval = stored;
+    } else {
+        rotationInterval = 900;
+        localStorage.setItem('kiosk_rotation_interval', '900');
+    }
+} else {
+    rotationInterval = 900;
+    localStorage.setItem('kiosk_rotation_interval', '900');
+}
+if (!rotationInterval || rotationInterval < 5) {
+    rotationInterval = 900;
+}
+remainingTime = rotationInterval;
+highlightIntervalButton(rotationInterval);
+if (urlParams.has('shuffle')) {
+    isShuffle = urlParams.get('shuffle') === '1' || urlParams.get('shuffle') === 'true';
+} else {
+    isShuffle = true; // Default random playback enabled
+}
+if (urlParams.has('mute')) {
+    userAudioEnabled = !(urlParams.get('mute') === '1' || urlParams.get('mute') === 'true');
+} else {
+    userAudioEnabled = true; // Default unmuted with sound
+}
+if (urlParams.has('normalize')) {
+    isNormalizerEnabled = urlParams.get('normalize') !== '0' && urlParams.get('normalize') !== 'false';
+    localStorage.setItem('kiosk_normalizer', isNormalizerEnabled);
+}
+if (muteBtn) {
+    muteBtn.innerText = userAudioEnabled ? '🔊' : '🔇';
+}
+const normBtnEl = document.getElementById('normalizerBtn');
+if (normBtnEl) {
+    normBtnEl.classList.toggle('btn-active', isNormalizerEnabled);
+    normBtnEl.title = `Auto Volume Leveling: ${isNormalizerEnabled ? 'ON (Balanced)' : 'OFF (Raw)'}`;
+}
+
+// Initialize volume from stored default
+setVolume(currentVolume);
+
+let currentPlaylistMode = urlParams.get('mode') || 'streamer';
+let currentPlaylistType = urlParams.get('playlist_type') || 'all';
+
+function switchPlaylistMode(e) {
+    if (e) e.stopPropagation();
+    currentPlaylistMode = (currentPlaylistMode === 'kiosk') ? 'streamer' : 'kiosk';
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.set('mode', currentPlaylistMode);
+    window.history.replaceState({}, '', newUrl);
+    updateModeButtonLabel();
+    fetchPlaylist();
+}
+
+function updateModeButtonLabel() {
+    const btn = document.getElementById('modeSwitchBtn');
+    if (btn) {
+        btn.innerText = currentPlaylistMode === 'kiosk' ? '🌐 Kiosk Mode' : '📺 Live Playlist';
+    }
+}
+
+function updatePlaylistTypeButtons() {
+    document.querySelectorAll('.playlist-type-btn').forEach(btn => {
+        const selected = btn.dataset.playlistType === currentPlaylistType;
+        btn.classList.toggle('active', selected);
+    });
+
+    const statusEl = document.getElementById('playlistTypeStatus');
+    if (statusEl) {
+        const label = currentPlaylistType === 'all' ? 'All' : currentPlaylistType === 'both' ? 'Both' : currentPlaylistType.charAt(0).toUpperCase() + currentPlaylistType.slice(1);
+        statusEl.textContent = `Playing: ${label}`;
+    }
+}
+
+function setPlaylistTypeFilter(type) {
+    const allowed = ['all', 'permanent', 'temporary', 'both'];
+    if (!allowed.includes(type)) type = 'all';
+    currentPlaylistType = type;
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.set('playlist_type', currentPlaylistType);
+    window.history.replaceState({}, '', newUrl);
+    updatePlaylistTypeButtons();
+    fetchPlaylist();
+}
+
+// Initial Load
+updateModeButtonLabel();
+updatePlaylistTypeButtons();
+fetchPlaylist();
+
+function fetchPlaylist() {
+    const fetchMode = currentPlaylistMode;
+    const userParamVal = urlParams.get('user') || urlParams.get('playlist') || urlParams.get('profile');
+    const fetchUser = userParamVal ? `&user=${encodeURIComponent(userParamVal)}` : '&user=' + encodeURIComponent({{ admin_user | tojson }});
+    const playlistTypeParam = `&playlist_type=${encodeURIComponent(currentPlaylistType || 'all')}`;
+    const apiUrl = getApiUrl(`api/playlist?mode=${fetchMode}${fetchUser}${playlistTypeParam}`);
+    const fetchQuery = { mode: fetchMode, user: userParamVal || {{ admin_user | tojson }}, playlist_type: currentPlaylistType || 'all' };
+
+    fetch(apiUrl)
+        .then(res => {
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status} (${res.statusText || 'Server Error'})`);
+            }
+            return res.json();
+        })
+        .then(data => {
+            if (!data || typeof data !== 'object') {
+                throw new Error("Invalid playlist data received from server");
+            }
+            if (data.error) {
+                throw new Error(data.error);
+            }
+
+            // Capture currently playing stream BEFORE replacing streams array
+            const prevStreams = Array.isArray(streams) ? streams : [];
+            const prevStream = (currentIndex >= 0 && currentIndex < prevStreams.length)
+                ? prevStreams[currentIndex]
+                : null;
+            const savedChannelName = prevStream 
+                ? (prevStream.name || prevStream.title) 
+                : (localStorage.getItem('kiosk_current_channel_name') || null);
+            const savedChannelUrl = prevStream 
+                ? prevStream.url 
+                : (localStorage.getItem('kiosk_current_channel_url') || null);
+
+            quietHoursConfig = data.quiet_hours || null;
+            temporaryScheduleConfig = data.temporary_schedule || null;
+            temporarySchedule2Config = data.temporary_schedule_2 || null;
+
+            playbackOverride = data.playback_override || null;
+            lastPlaySlot = playSlotKey(playbackOverride);
+            lastPlaylistHash = data.playlist_hash || null;
+            lastPlaylistQuery = fetchQuery;
+            let loadedStreams = Array.isArray(data.streams) ? data.streams : [];
+            const activeWinNum = getActiveTemporaryWindowNumber();
+            // A Studio "play now" override arrives already picked by the server
+            if (!playbackOverride && activeWinNum !== null) {
+                const tempStreams = loadedStreams.filter(s => isStreamTemporary(s) && isStreamForWindow(s, activeWinNum));
+                if (tempStreams.length > 0) {
+                    loadedStreams = tempStreams;
+                }
+            }
+            streams = loadedStreams;
+
+            if (isQuietHoursNow() && !urlParams.has('mute')) {
+                userAudioEnabled = false;
+                wasQuietHoursMuted = true;
+                if (muteBtn) muteBtn.innerText = '🔇';
+            }
+            updateQuietHoursPlayerState();
+            updateTemporarySchedulePlayerState();
+
+            if (!urlParams.has('interval') || (queryInterval && queryInterval <= 30)) {
+                if (localStorage.getItem('kiosk_rotation_interval')) {
+                    const stored = parseInt(localStorage.getItem('kiosk_rotation_interval'));
+                    if (stored && stored > 30) {
+                        rotationInterval = stored;
+                    } else {
+                        rotationInterval = parseInt(data.rotation_interval_seconds) || 900;
+                    }
+                } else if (data.rotation_interval_seconds) {
+                    rotationInterval = parseInt(data.rotation_interval_seconds) || 900;
+                }
+            }
+            if (!rotationInterval || rotationInterval < 5) {
+                rotationInterval = 900;
+            }
+
+            try {
+                const totalEl = document.getElementById('totalChannelsCount');
+                if (totalEl) totalEl.innerText = streams.length;
+                highlightIntervalButton(rotationInterval);
+                const shuffleBtnEl = document.getElementById('shuffleBtn');
+                if (shuffleBtnEl) shuffleBtnEl.classList.toggle('btn-active', isShuffle);
+                renderDrawer();
+            } catch (uiErr) {
+                console.warn("[Kiosk] UI update warning:", uiErr);
+            }
+
+            if (streams.length > 0) {
+                let isAlreadyPlaying = false;
+                try {
+                    const curPlayer = getActivePlayer();
+                    isAlreadyPlaying = Boolean(
+                        (curPlayer && (curPlayer.src || curPlayer.currentSrc)) ||
+                        (activeSlot === 'A' ? (mpegtsA || hlsA) : (mpegtsB || hlsB)) ||
+                        (iframePlayer && iframePlayer.style.display !== 'none' && iframePlayer.src && iframePlayer.src !== 'about:blank')
+                    );
+                } catch (e) {
+                    isAlreadyPlaying = false;
+                }
+
+                // Match by exact URL first, or fallback to Channel Name
+                let targetIndex = -1;
+                if (savedChannelUrl) {
+                    targetIndex = streams.findIndex(s => s.url === savedChannelUrl);
+                }
+                if (targetIndex < 0 && savedChannelName) {
+                    const cleanSaved = savedChannelName.trim().toLowerCase();
+                    targetIndex = streams.findIndex(s => (s.name || s.title || '').trim().toLowerCase() === cleanSaved);
+                }
+
+                // Synchronize non-repeating shuffle cycle state
+                if (isShuffle) {
+                    loadShuffleState();
+                    shuffleDeck = shuffleDeck.filter(i => typeof i === 'number' && i >= 0 && i < streams.length);
+                    const validPlayed = Array.from(playedInCurrentCycle).filter(i => typeof i === 'number' && i >= 0 && i < streams.length);
+                    playedInCurrentCycle = new Set(validPlayed);
+
+                    // Ensure strict invariant: played ∩ deck = ∅
+                    shuffleDeck = shuffleDeck.filter(i => !playedInCurrentCycle.has(i));
+
+                    if (shuffleDeck.length === 0 && playedInCurrentCycle.size === 0) {
+                        // Fresh session: initialize cycle starting from targetIndex (or random if none)
+                        const startIdx = targetIndex >= 0 ? targetIndex : -1;
+                        initShuffleFromCurrent(startIdx);
+                    } else if (targetIndex >= 0) {
+                        // Resuming on targetIndex: ensure it is in played set and purged from upcoming deck
+                        playedInCurrentCycle.add(targetIndex);
+                        const pos = shuffleDeck.indexOf(targetIndex);
+                        if (pos !== -1) shuffleDeck.splice(pos, 1);
+                        saveShuffleState();
+                    }
+                }
+
+                if (isAlreadyPlaying && targetIndex >= 0) {
+                    currentIndex = targetIndex;
+                    highlightActiveChannelInDrawer();
+                    // Keep currently playing video playing uninterrupted; new playlist URLs apply on next channel rotation
+                    if (savedChannelUrl && streams[targetIndex].url && streams[targetIndex].url !== savedChannelUrl) {
+                        console.log("[Kiosk] Updated stream URL queued in memory for next rotation:", streams[targetIndex].name);
+                    }
+                } else if (targetIndex >= 0 && !urlParams.has('channel')) {
+                    // Page reload / initial startup: resume on saved channel
+                    currentIndex = targetIndex;
+                    loadStream(currentIndex, true);
+                    startRotationTimer();
+                    startPlaybackWatchdog();
+                } else {
+                    if (urlParams.has('channel')) {
+                        currentIndex = parseInt(urlParams.get('channel')) || 0;
+                    } else if (isShuffle) {
+                        currentIndex = (targetIndex >= 0) ? targetIndex : (playedInCurrentCycle.size > 0 ? Array.from(playedInCurrentCycle)[0] : (shuffleDeck.length > 0 ? shuffleDeck[0] : 0));
+                    } else {
+                        currentIndex = 0;
+                    }
+                    if (currentIndex < 0 || currentIndex >= streams.length) {
+                        currentIndex = 0;
+                    }
+                    loadStream(currentIndex, true);
+                    startRotationTimer();
+                    startPlaybackWatchdog();
+                }
+            } else {
+                if (currentPlaylistType === 'temporary') {
+                    channelName.innerText = "No Temporary Channels Found";
+                    if (channelMeta) channelMeta.innerHTML = "0 channels are scheduled as temporary. Mark channels as <strong>Temporary</strong> in the IPTV Manager or save a Temporary playlist.";
+                } else {
+                    channelName.innerText = "No Streams Found in Playlist";
+                    if (channelMeta) channelMeta.innerText = "0 channels available in this playlist mode/filter.";
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Failed to load playlist:", err);
+            const msg = err && err.message ? err.message : String(err);
+            channelName.innerText = `Error loading playlist: ${msg}`;
+            if (channelMeta) {
+                channelMeta.innerHTML = `<span style="color: #f87171;">Failed to fetch: ${apiUrl}</span>`;
+            }
+        });
+}
+
+
+// Pre-buffering / Pre-caching upcoming channel in background slot
+function preloadStream(index) {
+    if (index < 0 || index >= streams.length) return;
+    const stream = streams[index];
+    if (!stream || isEmbedStream(stream.url) || isWebpageStream(stream)) return;
+    // Skip preloading for MPEG-TS live streams to prevent IPTV concurrency drops and audio conflicts
+    if (isTsStream(stream)) return;
+    // Anti-subscription collision: NEVER preload in background if next stream shares same provider as active playing stream
+    if (currentIndex >= 0 && currentIndex < streams.length) {
+        const curProv = getStreamProvider(streams[currentIndex]);
+        const nextProv = getStreamProvider(stream);
+        if (curProv === nextProv && !['YouTube', 'Other', 'Unknown'].includes(curProv)) {
+            console.log(`[Kiosk Preload] ⏭️ Skipping background preload for "${stream.name}" to prevent concurrent subscription collision on provider: ${curProv}`);
+            return;
+        }
+    }
+    if (preloadedIndex === index && isPreloadReady) return;
+
+    preloadedIndex = index;
+    isPreloading = true;
+    isPreloadReady = false;
+
+    const preloadSlot = activeSlot === 'A' ? 'B' : 'A';
+    const preloadPlayer = preloadSlot === 'A' ? videoPlayerA : videoPlayerB;
+    const streamSrc = getStreamSource(stream.url);
+
+    destroyPlayerSlot(preloadSlot);
+
+    preloadPlayer.muted = true;
+    preloadPlayer.volume = 0;
+
+    const isDirectVideo = stream.type === 'video' || stream.type === 'mp4' || 
+        (!stream.url.includes('.m3u8') && !stream.url.includes('m3u_plus') && (stream.url.includes('/series/') || stream.url.includes('/movie/') || stream.url.endsWith('.mp4')));
+
+    if (!isDirectVideo && Hls.isSupported()) {
+        const hlsInstance = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+            backBufferLength: 30,
+            maxBufferLength: 60,
+            maxMaxBufferLength: 120
+        });
+
+        if (preloadSlot === 'A') hlsA = hlsInstance; else hlsB = hlsInstance;
+
+        hlsInstance.loadSource(streamSrc);
+        hlsInstance.attachMedia(preloadPlayer);
+
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
+            applyCaptionsState();
+            preloadPlayer.play().then(() => {
+                isPreloadReady = true;
+                isPreloading = false;
+            }).catch(() => {
+                isPreloadReady = true;
+                isPreloading = false;
+            });
+        });
+
+        hlsInstance.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, function() {
+            applyCaptionsState();
+        });
+
+        hlsInstance.on(Hls.Events.ERROR, function(event, data) {
+            if (data.fatal) {
+                if (data.details === 'manifestParsingError' || data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR) {
+                    try { hlsInstance.destroy(); } catch (e) {}
+                    preloadPlayer.src = streamSrc;
+                    preloadPlayer.play().then(() => {
+                        isPreloadReady = true;
+                        isPreloading = false;
+                    }).catch(() => {
+                        isPreloadReady = true;
+                        isPreloading = false;
+                    });
+                    return;
+                }
+                isPreloadReady = false;
+                isPreloading = false;
+            }
+        });
+    } else {
+        preloadPlayer.src = streamSrc;
+        preloadPlayer.play().then(() => {
+            isPreloadReady = true;
+            isPreloading = false;
+        }).catch(() => {
+            isPreloadReady = true;
+            isPreloading = false;
+        });
+    }
+}
+
+function loadStream(index, forceImmediate = false) {
+    if (index < 0 || index >= streams.length) return;
+    lastVideoTime = -1;
+    stallTicks = 0;
+    // A retry reloads the same channel; keep its countdown so a channel that keeps
+    // failing still rotates out on schedule.
+    const isRetry = index === currentIndex && retryCount > 0 && remainingTime > 0;
+    noPictureTicks = 0;
+    resetFrameState();
+    if (index !== currentIndex) {
+        resetRetryState();
+    }
+    currentIndex = index;
+    if (isShuffle) {
+        markChannelPlayedInShuffle(currentIndex);
+    }
+    const stream = streams[currentIndex];
+
+    try {
+        if (stream && (stream.name || stream.title)) {
+            localStorage.setItem('kiosk_current_channel_name', stream.name || stream.title);
+            if (stream.url) {
+                localStorage.setItem('kiosk_current_channel_url', stream.url);
+            }
+        }
+    } catch (e) {}
+
+    updateQuietHoursPlayerState();
+    if (isQuietHoursNow() && !isManualOverride) {
+        userAudioEnabled = false;
+        wasQuietHoursMuted = true;
+        if (muteBtn) muteBtn.innerText = '🔇';
+    }
+
+    channelName.innerText = stream.name || stream.title || `Channel ${currentIndex + 1}`;
+    
+    // Duration setup
+    const currentDuration = parseInt(stream.duration_seconds) || rotationInterval;
+    if (!isRetry) remainingTime = currentDuration;
+    const durLabel = formatTime(currentDuration).replace(' left', '');
+    const cycleInfo = isShuffle ? ` • 🔀 Cycle: ${playedInCurrentCycle.size}/${streams.length}` : '';
+    channelMeta.innerText = `Channel ${currentIndex + 1} of ${streams.length}${cycleInfo} • Duration: ${durLabel}`;
+    
+    const hudBadge = document.getElementById('hudChannelBadge');
+    if (hudBadge) hudBadge.innerText = `${currentIndex + 1}/${streams.length}`;
+    const hudCountdown = document.getElementById('hudCountdownText');
+    if (hudCountdown) hudCountdown.innerText = formatTime(remainingTime);
+
+    const providerEl = document.getElementById('kioskProviderName');
+    const provName = stream.provider || stream.category || 'Live IPTV';
+    if (providerEl) {
+        providerEl.innerText = `Provider: ${provName}`;
+    }
+
+    const hudProv = document.getElementById('hudProviderName');
+    if (hudProv) {
+        hudProv.innerText = provName;
+    }
+
+    highlightActiveChannelInDrawer();
+    updateProgramInfo();
+    sendPlayerHeartbeat('playing');
+    KioskTelemetry.log('info', 'channel_change', `Switching to channel ${index + 1}: ${stream.name || 'Channel ' + (index + 1)}`, {
+        channel_index: index,
+        channel_name: stream.name || '',
+        duration_seconds: currentDuration,
+        provider: provName
+    });
+
+    const rawUrl = stream.url;
+
+    if (isWebpageStream(stream)) {
+        destroyPlayerSlot('A');
+        destroyPlayerSlot('B');
+        iframePlayer.src = 'about:blank';
+        iframePlayer.style.display = 'none';
+        videoPlayerA.style.display = 'none';
+        videoPlayerB.style.display = 'none';
+        openWebpageWindow(stream);
+        preloadedIndex = -1;
+        isPreloadReady = false;
+        return;
+    }
+    closeWebpageWindow();
+
+    // Check if YouTube / Embed URL
+    if (isEmbedStream(rawUrl)) {
+        destroyPlayerSlot('A');
+        destroyPlayerSlot('B');
+        videoPlayerA.style.display = 'none';
+        videoPlayerB.style.display = 'none';
+        iframePlayer.style.display = 'block';
+        
+        let embedUrl = rawUrl;
+        const muteFlag = userAudioEnabled ? '0' : '1';
+        const ccParam = isCcEnabled ? '&cc_load_policy=1&cc_lang_pref=en' : '';
+        if (rawUrl.includes('watch?v=')) {
+            const vidId = rawUrl.split('watch?v=')[1].split('&')[0];
+            embedUrl = `https://www.youtube.com/embed/${vidId}?autoplay=1&mute=${muteFlag}&enablejsapi=1${ccParam}`;
+        } else if (rawUrl.includes('youtu.be/')) {
+            const vidId = rawUrl.split('youtu.be/')[1].split(/[?#&]/)[0];
+            embedUrl = `https://www.youtube.com/embed/${vidId}?autoplay=1&mute=${muteFlag}&enablejsapi=1${ccParam}`;
+        } else if (rawUrl.includes('youtube.com/live/')) {
+            const vidId = rawUrl.split('youtube.com/live/')[1].split(/[?#&]/)[0];
+            embedUrl = `https://www.youtube.com/embed/${vidId}?autoplay=1&mute=${muteFlag}&enablejsapi=1${ccParam}`;
+        } else if (rawUrl.includes('youtube.com/embed/')) {
+            embedUrl = rawUrl;
+            if (!embedUrl.includes('autoplay=')) {
+                embedUrl += (embedUrl.includes('?') ? '&' : '?') + 'autoplay=1';
+            }
+            if (!embedUrl.includes('mute=')) {
+                embedUrl += `&mute=${muteFlag}`;
+            }
+            if (!embedUrl.includes('enablejsapi=')) {
+                embedUrl += `&enablejsapi=1`;
+            }
+            if (isCcEnabled && !embedUrl.includes('cc_load_policy=')) {
+                embedUrl += '&cc_load_policy=1&cc_lang_pref=en';
+            }
+        }
+        iframePlayer.src = embedUrl;
+        iframePlayer.onload = function() {
+            [100, 400, 800, 1500].forEach(delay => {
+                setTimeout(() => { 
+                    applyStreamVolume(stream); 
+                    applyCaptionsState();
+                }, delay);
+            });
+        };
+        preloadedIndex = -1;
+        isPreloadReady = false;
+        return;
+    }
+
+    // Kill previous YouTube iframe completely
+    iframePlayer.src = 'about:blank';
+    iframePlayer.style.display = 'none';
+    videoPlayerA.style.display = 'block';
+    videoPlayerB.style.display = 'block';
+
+    const streamSrc = getStreamSource(rawUrl);
+
+    // If stream is pre-buffered and ready in background player, perform instant zero-delay swap
+    const preloadSlot = activeSlot === 'A' ? 'B' : 'A';
+    if (!forceImmediate && preloadedIndex === index && isPreloadReady) {
+        const oldSlot = activeSlot;
+        activeSlot = preloadSlot; // Swap active slot
+
+        const activePlayer = getActivePlayer();
+        const oldPlayer = getPreloadPlayer();
+
+        // Smooth CSS Opacity Crossfade
+        activePlayer.classList.remove('preload');
+        activePlayer.classList.add('active');
+        oldPlayer.classList.remove('active');
+        oldPlayer.classList.add('preload');
+
+        // Apply audio & gain
+        activePlayer.muted = !userAudioEnabled;
+        applyStreamVolume(stream);
+        applyCaptionsState();
+
+        if (activeSlot === 'A' && mpegtsA) {
+            mpegtsA.play().catch(() => {});
+        } else if (activeSlot === 'B' && mpegtsB) {
+            mpegtsB.play().catch(() => {});
+        } else {
+            activePlayer.play().then(() => {
+                if (audioCtx && audioCtx.state === 'suspended' && userAudioEnabled) {
+                    audioCtx.resume().catch(() => {});
+                }
+            }).catch(() => {});
+        }
+
+        // Teardown previous stream in background
+        destroyPlayerSlot(oldSlot);
+
+        preloadedIndex = -1;
+        isPreloadReady = false;
+        isPreloading = false;
+        return;
+    }
+
+    // Otherwise, direct load into current active player
+    preloadedIndex = -1;
+    isPreloadReady = false;
+    isPreloading = false;
+
+    const activePlayer = getActivePlayer();
+    const oldPreloadPlayer = getPreloadPlayer();
+
+    destroyPlayerSlot(activeSlot);
+    destroyPlayerSlot(preloadSlot);
+
+    activePlayer.classList.remove('preload');
+    activePlayer.classList.add('active');
+    oldPreloadPlayer.classList.remove('active');
+    oldPreloadPlayer.classList.add('preload');
+
+    activePlayer.muted = !userAudioEnabled;
+    applyStreamVolume(stream);
+
+    const isTsLike = isTsStream(stream);
+    const isDirectVideo = !isTsLike && (stream.type === 'video' || stream.type === 'mp4' || 
+        (!stream.url.includes('.m3u8') && !stream.url.includes('m3u_plus') && (stream.url.includes('/series/') || stream.url.includes('/movie/') || stream.url.endsWith('.mp4'))));
+
+    function startKioskMpegts(slot, player, withAudio = true) {
+        window.startKioskMpegts = startKioskMpegts;
+        try {
+            const oldInstance = slot === 'A' ? mpegtsA : mpegtsB;
+            if (oldInstance) {
+                try { oldInstance.destroy(); } catch (e) {}
+                if (slot === 'A') mpegtsA = null; else mpegtsB = null;
+            }
+            const playerInstance = mpegts.createPlayer({
+                type: 'mpegts',
+                isLive: true,
+                url: streamSrc,
+                hasAudio: withAudio
+            }, {
+                enableWorker: false,                // Disable worker to avoid MediaSource synchronization/MSE race conditions in Chrome
+                lazyLoad: false,
+                liveBufferLatencyChasing: false,
+                enableStashBuffer: true,
+                stashInitialSize: 1024 * 1024,      // 1MB initial buffer stash to prevent early buffering/stutters
+                maxStashBuffer: 8 * 1024 * 1024,    // Allow up to 8MB buffer cushion
+                autoCleanupSourceBuffer: true,
+                autoCleanupMaxBackwardDuration: 60,
+                autoCleanupMinBackwardDuration: 30
+            });
+            playerInstance._hasAudio = withAudio;
+
+            if (slot === 'A') mpegtsA = playerInstance; else mpegtsB = playerInstance;
+
+            playerInstance.attachMediaElement(player);
+            playerInstance.load();
+
+            // Start muted to comply with Chrome autoplay policy on Windows 11
+            player.muted = true;
+            applyStreamVolume(stream);
+
+            const pPromise = playerInstance.play();
+            if (pPromise && typeof pPromise.then === 'function') {
+                pPromise.then(() => {
+                    KioskTelemetry.log('info', 'stream_playing', `Started MPEG-TS channel: ${stream.name || 'Channel ' + (currentIndex + 1)}`, {
+                        slot: slot,
+                        format: 'mpegts',
+                        with_audio: withAudio
+                    });
+                    if (withAudio && userAudioEnabled) {
+                        try {
+                            player.muted = false;
+                            applyStreamVolume(stream);
+                            if (muteBtn) muteBtn.innerText = '🔊';
+                        } catch (unmuteErr) {
+                            player.muted = true;
+                            if (muteBtn) muteBtn.innerText = '🔇';
+                            showUnmutePill();
+                            KioskTelemetry.log('warn', 'unmute_blocked', 'Browser autoplay policy required muted start', { error: String(unmuteErr) });
+                        }
+                    }
+                }).catch((err) => {
+                    console.warn("[Kiosk] Chrome autoplay policy prevented unmuted playback, falling back to muted:", err);
+                    KioskTelemetry.log('warn', 'autoplay_blocked', 'Chrome autoplay policy prevented initial play, retrying muted', { error: String(err) });
+                    player.muted = true;
+                    if (muteBtn) muteBtn.innerText = '🔇';
+                    playerInstance.play().then(() => {
+                        showUnmutePill();
+                    }).catch(() => {});
+                });
+            }
+
+            playerInstance.on(mpegts.Events.MEDIA_INFO, function(mi) {
+                KioskTelemetry.log('info', 'media_info', `Codecs: ${mi.videoCodec || 'no video'} / ${mi.audioCodec || 'no audio'}`, {
+                    video_codec: mi.videoCodec || null,
+                    audio_codec: mi.audioCodec || null,
+                    width: mi.width || 0,
+                    height: mi.height || 0
+                });
+            });
+
+            playerInstance.on(mpegts.Events.ERROR, function(type, detail, info) {
+                console.warn("[Kiosk] mpegts error:", type, detail, info);
+                KioskTelemetry.log('error', 'mpegts_error', `MPEG-TS Error: ${type} - ${detail}`, { type, detail, info });
+                if (playerInstance._hasAudio) {
+                    console.log("[Kiosk] Audio track error or unsupported codec in stream. Retrying in video-only mode...");
+                    setTimeout(() => startKioskMpegts(slot, player, false), 100);
+                } else {
+                    handlePlaybackFailure("mpegts_error");
+                }
+            });
+
+            player.onstalled = function() {};
+            player.onwaiting = function() {};
+            player.onerror = function() {
+                if (!player.getAttribute('src') && !player.src) return;
+                KioskTelemetry.log('error', 'video_element_error', `HTMLMediaElement error in MPEG-TS slot ${slot}`, {
+                    code: player.error ? player.error.code : null,
+                    message: player.error ? player.error.message : null
+                });
+                if (playerInstance && playerInstance._hasAudio) {
+                    console.log("[Kiosk] Player element error with audio enabled. Falling back to video-only mode...");
+                    setTimeout(() => startKioskMpegts(slot, player, false), 100);
+                } else {
+                    handlePlaybackFailure("mpegts_video_error");
+                }
+            };
+            player.onplaying = function() { stallTicks = 0; };
+            player.ontimeupdate = function() {
+                if (player.buffered && player.buffered.length > 0 && player.currentTime < player.buffered.start(0)) {
+                    player.currentTime = player.buffered.start(0) + 0.05;
+                }
+                if (player.currentTime > 25 && stallTicks === 0) retryCount = 0;
+            };
+        } catch (e) {
+            console.warn("[Kiosk] Failed to initialize mpegts.js:", e);
+            KioskTelemetry.log('error', 'mpegts_init_exception', `Failed to initialize mpegts.js: ${e.message}`, { error: String(e) });
+            if (withAudio) {
+                setTimeout(() => startKioskMpegts(slot, player, false), 100);
+            }
+        }
+    }
+
+    function canPlayAc3() {
+        try {
+            return window.MediaSource && (
+                MediaSource.isTypeSupported('audio/mp4; codecs="ac-3"') ||
+                MediaSource.isTypeSupported('audio/mp4; codecs="mp4a.a5"') ||
+                MediaSource.isTypeSupported('audio/mp4; codecs="ec-3"')
+            );
+        } catch (e) {
+            return false;
+        }
+    }
+
+    if (isTsLike && window.mpegts && mpegts.isSupported()) {
+        startKioskMpegts(activeSlot, activePlayer, true);
+        return;
+    }
+
+    if (!isDirectVideo && Hls.isSupported()) {
+        const hlsInstance = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,                  // Disable aggressive 0-buffer mode to prevent stutter
+            backBufferLength: 30,
+            maxBufferLength: 60,                    // Cache up to 60 seconds of forward video
+            maxMaxBufferLength: 120,                // Up to 120s maximum buffer
+            liveSyncDurationCount: 5,               // Safe 5-segment buffer cushion (~10-15s)
+            liveMaxLatencyDurationCount: 10,
+            maxBufferHole: 0.5,                     // Seamlessly bridge small buffer gaps
+            maxSeekHole: 2.0,                       // Skip forward up to 2s if stuck behind hole
+            nudgeOffset: 0.2,                       // Nudge playhead by 200ms
+            nudgeMaxRetry: 10                       // Try up to 10 micro-nudges before failing
+        });
+
+        if (activeSlot === 'A') hlsA = hlsInstance; else hlsB = hlsInstance;
+
+        hlsInstance.loadSource(streamSrc);
+        hlsInstance.attachMedia(activePlayer);
+
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
+            applyStreamVolume(stream);
+            applyCaptionsState();
+            activePlayer.play().then(() => {
+                KioskTelemetry.log('info', 'stream_playing', `Started HLS channel: ${stream.name || 'Channel ' + (currentIndex + 1)}`, {
+                    format: 'hls'
+                });
+                if (audioCtx && audioCtx.state === 'suspended' && userAudioEnabled) {
+                    audioCtx.resume().catch(() => {});
+                }
+            }).catch(() => {
+                activePlayer.muted = true;
+                if (muteBtn) muteBtn.innerText = '🔇';
+                activePlayer.play().then(() => {
+                    showUnmutePill();
+                }).catch(() => {});
+            });
+        });
+
+        hlsInstance.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, function() {
+            applyCaptionsState();
+        });
+
+        hlsInstance.on(Hls.Events.ERROR, function(event, data) {
+            KioskTelemetry.log(data.fatal ? 'error' : 'warn', 'hls_error', `HLS Error: ${data.details} (${data.type})`, {
+                fatal: data.fatal,
+                details: data.details,
+                type: data.type
+            });
+            if (data.fatal) {
+                if (data.details === 'manifestParsingError' || data.details === Hls.ErrorDetails.MANIFEST_PARSING_ERROR) {
+                    console.warn("HLS manifest parsing failed, falling back to native video:", streamSrc);
+                    try { hlsInstance.destroy(); } catch (e) {}
+                    activePlayer.src = streamSrc;
+                    initAudioNormalizer();
+                    reconnectAudioGraph();
+                    activePlayer.play().catch(() => {});
+                    return;
+                }
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.warn("HLS network error, attempting recovery:", data);
+                        retryCount++;
+                        if (retryCount <= MAX_RETRIES) {
+                            showErrorToast(`⚠️ Network error. Retrying (${retryCount}/${MAX_RETRIES})...`);
+                            hlsInstance.startLoad();
+                        } else {
+                            handlePlaybackFailure("network_error");
+                        }
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.warn("HLS media error, attempting recovery:", data);
+                        hlsInstance.recoverMediaError();
+                        break;
+                    default:
+                        console.error("Unrecoverable HLS error:", data);
+                        handlePlaybackFailure("unrecoverable_hls");
+                        break;
+                }
+            } else if (data.details === 'bufferStalledError' || data.details === 'bufferSeekOverHole') {
+                // Non-fatal buffer hole recovery
+                try {
+                    hlsInstance.recoverMediaError();
+                } catch (e) {}
+            }
+        });
+
+        activePlayer.onstalled = function() {};
+        activePlayer.onwaiting = function() {};
+        activePlayer.onerror = function() {
+            console.warn("Active player HTML5 error event:", activePlayer.error);
+            if (hlsInstance && retryCount < MAX_RETRIES) {
+                try {
+                    hlsInstance.recoverMediaError();
+                    return;
+                } catch (e) {}
+            }
+            handlePlaybackFailure("html5_video_error");
+        };
+        activePlayer.onplaying = function() {
+            stallTicks = 0;
+        };
+        activePlayer.ontimeupdate = function() {
+            if (activePlayer.currentTime > 25 && stallTicks === 0) {
+                retryCount = 0;
+            }
+        };
+    } else if (activePlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native Apple WebKit HLS player for iOS Safari / iPadOS
+        console.log("[Kiosk] Using native Apple WebKit HLS playback for iOS:", streamSrc);
+        activePlayer.src = streamSrc;
+        applyStreamVolume(stream);
+        applyCaptionsState();
+        activePlayer.play().then(() => {
+            KioskTelemetry.log('info', 'stream_playing', `Started native Apple HLS channel: ${stream.name || 'Channel ' + (currentIndex + 1)}`, {
+                format: 'native_apple_hls'
+            });
+            if (audioCtx && audioCtx.state === 'suspended' && userAudioEnabled) {
+                audioCtx.resume().catch(() => {});
+            }
+        }).catch(() => {
+            activePlayer.muted = true;
+            if (muteBtn) muteBtn.innerText = '🔇';
+            activePlayer.play().then(() => showUnmutePill()).catch(() => {});
+        });
+
+        activePlayer.onstalled = function() { stallTicks += 2; };
+        activePlayer.onwaiting = function() { stallTicks += 1; };
+        activePlayer.onerror = function() { handlePlaybackFailure("native_apple_hls_error"); };
+        activePlayer.onplaying = function() { stallTicks = 0; };
+        activePlayer.ontimeupdate = function() {
+            if (activePlayer.currentTime > 25 && stallTicks === 0) retryCount = 0;
+        };
+    } else {
+        // Native HTML5 video playback for direct MP4, Series, VOD, and non-m3u8 streams
+        activePlayer.src = streamSrc;
+        applyStreamVolume(stream);
+        applyCaptionsState();
+        activePlayer.play().then(() => {
+            if (audioCtx && audioCtx.state === 'suspended' && userAudioEnabled) {
+                audioCtx.resume().catch(() => {});
+            }
+        }).catch(() => {
+            activePlayer.muted = true;
+            if (muteBtn) muteBtn.innerText = '🔇';
+            activePlayer.play().then(() => {
+                showUnmutePill();
+            }).catch(() => {});
+        });
+
+        activePlayer.onstalled = function() { stallTicks += 2; };
+        activePlayer.onwaiting = function() { stallTicks += 1; };
+        activePlayer.onerror = function() { handlePlaybackFailure("native_video_error"); };
+        activePlayer.onplaying = function() { stallTicks = 0; };
+        activePlayer.ontimeupdate = function() {
+            if (activePlayer.currentTime > 2 && stallTicks === 0) retryCount = 0;
+        };
+    }
+}
+
+function formatTime(seconds) {
+    if (seconds <= 0) return '0s left';
+    if (seconds < 60) return `${seconds}s left`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    if (m < 60) {
+        return s > 0 ? `${m}m ${s}s left` : `${m}m left`;
+    }
+    const h = Math.floor(m / 60);
+    const remM = m % 60;
+    return remM > 0 ? `${h}h ${remM}m left` : `${h}h left`;
+}
+
+let isPreflightChecking = false;
+let verifiedNextIndex = -1;
+
+async function runPreflightForNextChannel() {
+    if (streams.length <= 1 || isPreflightChecking) return;
+    isPreflightChecking = true;
+
+    try {
+        let attempts = 0;
+        while (attempts < Math.min(streams.length, 5)) {
+            attempts++;
+            const nextIdx = getNextIndex();
+            const stream = streams[nextIdx];
+            if (!stream) break;
+
+            // YouTube embeds and web player pages don't need IPTV proxy preflight
+            if (isEmbedStream(stream.url) || isWebpageStream(stream)) {
+                verifiedNextIndex = nextIdx;
+                preloadStream(nextIdx);
+                break;
+            }
+
+            console.log(`[Kiosk Preflight] Probing upcoming channel ${nextIdx + 1}: "${stream.name}"...`);
+            const preflightUrl = getApiUrl(`api/channel/preflight`);
+            const userParamVal = urlParams.get('user') || {{ admin_user | tojson }};
+            
+            let data = null;
+            try {
+                const res = await fetch(preflightUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: stream.url,
+                        name: stream.name || stream.title || '',
+                        index: nextIdx,
+                        user: userParamVal
+                    })
+                });
+                if (res.ok) {
+                    data = await res.json();
+                }
+            } catch (netErr) {
+                console.warn("[Kiosk Preflight] Preflight network check error:", netErr);
+            }
+
+            if (data && data.playable) {
+                if (data.healed && data.url) {
+                    console.log(`[Kiosk Preflight] 🔄 Channel "${stream.name}" healed with DB replacement: ${data.url}`);
+                    stream.url = data.url;
+                    if (data.provider) stream.provider = data.provider;
+                    showErrorToast(`🔄 Auto-healed "${stream.name}" from DB`);
+                } else {
+                    console.log(`[Kiosk Preflight] 🟢 Channel "${stream.name}" verified playable (${data.latency_ms || 0}ms)`);
+                }
+                verifiedNextIndex = nextIdx;
+                preloadStream(nextIdx);
+                break;
+            } else if (data && !data.playable) {
+                // Channel is dead and has no working replacement in DB
+                console.warn(`[Kiosk Preflight] 🔴 Channel "${stream.name}" is OFFLINE (${data.error || 'unreachable'}). Auto-skipping to avoid black screen...`);
+                showErrorToast(`⚠️ Skipping offline channel: ${stream.name}`);
+                stream.offline = true;
+                if (isShuffle) {
+                    const pos = shuffleDeck.indexOf(nextIdx);
+                    if (pos !== -1) shuffleDeck.splice(pos, 1);
+                    playedInCurrentCycle.add(nextIdx);
+                    saveShuffleState();
+                }
+                // Continue loop to probe next channel in deck
+            } else {
+                // Preflight timed out or failed to reach server: proceed with best effort
+                verifiedNextIndex = nextIdx;
+                preloadStream(nextIdx);
+                break;
+            }
+        }
+    } catch (err) {
+        console.warn("[Kiosk Preflight] Error during preflight check:", err);
+    } finally {
+        isPreflightChecking = false;
+    }
+}
+
+function startRotationTimer() {
+    if (timerId) clearInterval(timerId);
+    timerId = setInterval(() => {
+        const hudCountdown = document.getElementById('hudCountdownText');
+        if (!isPaused && streams.length > 1) {
+            remainingTime--;
+            const streamDuration = parseInt(streams[currentIndex]?.duration_seconds) || rotationInterval;
+            const progressPct = ((streamDuration - remainingTime) / streamDuration) * 100;
+            progressFill.style.width = Math.min(100, Math.max(0, progressPct)) + '%';
+            const formatted = formatTime(Math.max(0, remainingTime));
+            countdownText.innerText = formatted;
+            if (hudCountdown) hudCountdown.innerText = formatted;
+
+            // Trigger background pre-flight check & pre-buffering 5 seconds before switch
+            const reloadAtSwitch = pendingBuildReload && canAutoReload();
+            // No preflight/preload when reloading: it would open an upstream connection the reload drops
+            if (!reloadAtSwitch && remainingTime <= 5 && remainingTime > 0 && !isPreflightChecking && verifiedNextIndex === -1 && !isPreloadReady) {
+                runPreflightForNextChannel();
+            }
+
+            if (remainingTime <= 0) {
+                if (reloadAtSwitch) {
+                    clearInterval(timerId);
+                    reloadIntoNextChannel();
+                } else {
+                    nextStream();
+                }
+            }
+        } else if (isPaused) {
+            countdownText.innerText = 'Paused';
+            if (hudCountdown) hudCountdown.innerText = 'Paused';
+        }
+    }, 1000);
+}
+
+function reloadPage(e) {
+    if (e) e.stopPropagation();
+    window.location.reload();
+}
+
+function nextStream(e) {
+    if (e) e.stopPropagation();
+    if (streams.length === 0) return;
+    const targetIdx = (verifiedNextIndex !== -1 && isStreamActiveNow(streams[verifiedNextIndex])) 
+        ? verifiedNextIndex 
+        : ((preloadedIndex !== -1 && isPreloadReady) ? preloadedIndex : getNextIndex());
+    verifiedNextIndex = -1;
+    preloadedIndex = -1;
+    isPreloadReady = false;
+    loadStream(targetIdx);
+}
+
+function prevStream(e) {
+    if (e) e.stopPropagation();
+    if (streams.length === 0) return;
+    const currentStream = currentIndex >= 0 && currentIndex < streams.length ? streams[currentIndex] : null;
+    const currentProvider = currentStream ? getStreamProvider(currentStream) : '';
+
+    let attempts = 0;
+    let prevIdx = (currentIndex - 1 + streams.length) % streams.length;
+    let firstDiffProvIdx = -1;
+    let firstActiveIdx = -1;
+
+    while (attempts < streams.length) {
+        if (isStreamActiveNow(streams[prevIdx]) && prevIdx !== currentIndex) {
+            if (firstActiveIdx === -1) firstActiveIdx = prevIdx;
+            if (getStreamProvider(streams[prevIdx]) !== currentProvider) {
+                firstDiffProvIdx = prevIdx;
+                break;
+            }
+        }
+        prevIdx = (prevIdx - 1 + streams.length) % streams.length;
+        attempts++;
+    }
+
+    const targetIdx = firstDiffProvIdx !== -1 ? firstDiffProvIdx : (firstActiveIdx !== -1 ? firstActiveIdx : (currentIndex - 1 + streams.length) % streams.length);
+    loadStream(targetIdx, true);
+}
+
+function togglePlayPause(e) {
+    if (e) e.stopPropagation();
+    isPaused = !isPaused;
+    playPauseBtn.innerText = isPaused ? '▶️' : '⏸️';
+    playPauseBtn.title = isPaused ? 'Resume Rotation' : 'Pause Rotation';
+    countdownText.innerText = isPaused ? 'Paused' : formatTime(remainingTime);
+}
+
+function toggleShuffle(e) {
+    if (e) e.stopPropagation();
+    isShuffle = !isShuffle;
+    const shuffleBtn = document.getElementById('shuffleBtn');
+    if (shuffleBtn) shuffleBtn.classList.toggle('btn-active', isShuffle);
+    preloadedIndex = -1;
+    isPreloadReady = false;
+    if (isShuffle) {
+        initShuffleFromCurrent(currentIndex);
+        const poolLen = getActivePool().length;
+        showErrorToast(`🔀 Non-repeating Shuffle ON (${poolLen} channels)`);
+    } else {
+        showErrorToast("🔁 Sequential Rotation ON");
+    }
+}
+
+function toggleMute(e) {
+    if (e) e.stopPropagation();
+    isManualOverride = true;
+    wasQuietHoursMuted = false;
+    initAudioNormalizer();
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+    }
+    const activePlayer = getActivePlayer();
+    if (activePlayer.muted) {
+        activePlayer.muted = false;
+        userAudioEnabled = true;
+        dismissUnmutePill();
+        setVolume(currentVolume);
+    } else {
+        activePlayer.muted = true;
+        userAudioEnabled = false;
+    }
+    if (muteBtn) muteBtn.innerText = activePlayer.muted ? '🔇' : '🔊';
+}
+
+function enableAudio(e) {
+    if (e) e.stopPropagation();
+    isManualOverride = true;
+    wasQuietHoursMuted = false;
+    initAudioNormalizer();
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+    }
+    userAudioEnabled = true;
+    const activePlayer = getActivePlayer();
+    activePlayer.muted = false;
+    activePlayer.play().catch(() => {});
+    setVolume(currentVolume);
+    if (muteBtn) muteBtn.innerText = '🔊';
+    dismissUnmutePill();
+}
+
+function handleUserInteraction() {
+    initAudioNormalizer();
+    if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+    }
+    const activePlayer = getActivePlayer();
+    if (activePlayer && activePlayer.muted && !isQuietHoursNow()) {
+        userAudioEnabled = true;
+        activePlayer.muted = false;
+        setVolume(currentVolume);
+        if (muteBtn) muteBtn.innerText = '🔊';
+        dismissUnmutePill();
+    }
+    if (!isKioskWindowed && !document.fullscreenElement && (localStorage.getItem('kiosk_fullscreen_mode') === 'true' || urlParams.has('fullscreen'))) {
+        document.documentElement.requestFullscreen().catch(() => {});
+    }
+}
+
+function showUnmutePill() {
+    const activePlayer = getActivePlayer();
+    if (!unmuteDismissed && activePlayer && activePlayer.muted) {
+        unmutePill.style.display = 'flex';
+    }
+}
+
+function dismissUnmutePill(e) {
+    if (e) e.stopPropagation();
+    unmuteDismissed = true;
+    unmutePill.style.display = 'none';
+}
+
+function setIntervalSeconds(sec) {
+    const s = parseInt(sec);
+    if (!s || s < 2) return;
+    rotationInterval = s;
+    localStorage.setItem('kiosk_rotation_interval', s);
+    const streamDur = parseInt(streams[currentIndex]?.duration_seconds);
+    if (!streamDur || streamDur <= 0) {
+        remainingTime = s;
+    }
+    highlightIntervalButton(s);
+    renderDrawer();
+}
+
+function highlightIntervalButton(sec) {
+    document.querySelectorAll('.interval-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.sec) === sec);
+    });
+    document.getElementById('customIntervalInput').value = sec;
+}
+
+function renderDrawer() {
+    const list = document.getElementById('channelList');
+    if (!list) return;
+    list.innerHTML = '';
+    streams.forEach((s, idx) => {
+        if (!s || typeof s !== 'object') return;
+        const item = document.createElement('div');
+        item.className = `channel-item ${idx === currentIndex ? 'active' : ''}`;
+        item.dataset.index = idx;
+        item.onclick = (e) => {
+            e.stopPropagation();
+            loadStream(idx);
+            closeDrawer();
+            if (isPaused) togglePlayPause();
+        };
+        const active = isStreamActiveNow(s);
+        const schedType = isStreamTemporary(s) ? 'temporary' : String(s.schedule_type || s.list_type || 'permanent').toLowerCase();
+        let badgeHtml = '';
+        if (s.provider) {
+            badgeHtml += `<span style="font-size: 0.65rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); border-radius: 4px; padding: 1px 4px; margin-right: 4px;">${s.provider}</span>`;
+        } else if (s.category) {
+            badgeHtml += `<span style="font-size: 0.65rem; background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); border-radius: 4px; padding: 1px 4px; margin-right: 4px;">${s.category}</span>`;
+        }
+        if (schedType === 'temporary') {
+            badgeHtml += `<span style="font-size: 0.65rem; background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); border-radius: 4px; padding: 1px 4px; margin-right: 4px;">🕒 Temp ${active ? '🟢' : '⏳'}</span>`;
+        }
+        const itemDur = parseInt(s.duration_seconds) || rotationInterval;
+        const durFormatted = formatTime(itemDur).replace(' left', '');
+        item.innerHTML = `
+            <div style="flex: 1; min-width: 0; padding-right: 8px;">
+                <strong style="font-size: 0.9rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">#${idx + 1} ${s.name || s.title || 'Stream ' + (idx + 1)}</strong>
+                <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 4px; margin-top: 3px; flex-wrap: wrap;">
+                    ${badgeHtml}
+                    <span>⏱️ ${durFormatted}</span>
+                </div>
+            </div>
+            <span style="font-size: 0.75rem; color: ${active ? 'var(--accent-cyan)' : '#f59e0b'}; white-space: nowrap;">${active ? 'Play ↗' : '⏳ Inactive'}</span>
+        `;
+        list.appendChild(item);
+    });
+}
+
+function highlightActiveChannelInDrawer() {
+    document.querySelectorAll('.channel-item').forEach(item => {
+        item.classList.toggle('active', parseInt(item.dataset.index) === currentIndex);
+    });
+}
+
+function filterChannels() {
+    const q = document.getElementById('channelSearch').value.toLowerCase();
+    document.querySelectorAll('.channel-item').forEach(item => {
+        item.style.display = item.innerText.toLowerCase().includes(q) ? 'flex' : 'none';
+    });
+}
+
+function openDrawer(e) {
+    if (e) e.stopPropagation();
+    document.getElementById('channelDrawer').classList.add('open');
+    document.getElementById('drawerOverlay').style.display = 'block';
+}
+
+function closeDrawer(e) {
+    if (e) e.stopPropagation();
+    document.getElementById('channelDrawer').classList.remove('open');
+    document.getElementById('drawerOverlay').style.display = 'none';
+}
+
+function toggleFullscreen(e) {
+    if (e) e.stopPropagation();
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().then(() => {
+            localStorage.setItem('kiosk_fullscreen_mode', 'true');
+        }).catch(() => {});
+    } else {
+        document.exitFullscreen().then(() => {
+            localStorage.setItem('kiosk_fullscreen_mode', 'false');
+        }).catch(() => {});
+    }
+}
+
+document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) {
+        localStorage.setItem('kiosk_fullscreen_mode', 'true');
+    }
+});
+
+// ==========================================
+// Windowed / Movable / Resizable Kiosk Mode
+// ==========================================
+let isKioskWindowed = false;
+let isKioskWindowDocked = false;
+let isDraggingKiosk = false;
+let isResizingKiosk = false;
+let kioskDragInitialized = false;
+
+function toggleWindowedMode(e) {
+    if (e) e.stopPropagation();
+    const container = document.getElementById('player-container');
+    const winBtn = document.getElementById('windowedModeBtn');
+    const hudWinBtn = document.getElementById('hudWindowedBtn');
+    const botWinBtn = document.getElementById('bottomWindowedBtn');
+    const body = document.getElementById('app-body');
+    if (!container) return;
+
+    isKioskWindowed = !isKioskWindowed;
+
+    if (isKioskWindowed) {
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(() => {});
+        }
+        body.classList.add('windowed-mode');
+        container.classList.add('windowed');
+        if (winBtn) winBtn.innerHTML = '⛶ Fullscreen';
+        if (hudWinBtn) hudWinBtn.innerHTML = '⛶';
+        if (botWinBtn) {
+            botWinBtn.classList.add('btn-active');
+            botWinBtn.title = 'Fullscreen (W or F)';
+        }
+
+        initKioskDragAndResize();
+
+        // Restore previous rect or center
+        const savedRect = JSON.parse(localStorage.getItem('kiosk_window_rect') || 'null');
+        if (savedRect && savedRect.width && savedRect.height) {
+            container.style.width = savedRect.width;
+            container.style.height = savedRect.height;
+            container.style.left = savedRect.left || 'auto';
+            container.style.top = savedRect.top || 'auto';
+            container.style.right = savedRect.right || 'auto';
+            container.style.bottom = savedRect.bottom || 'auto';
+        } else {
+            centerKioskWindow();
+        }
+        localStorage.setItem('kiosk_window_mode', 'windowed');
+    } else {
+        saveKioskWindowRect();
+        body.classList.remove('windowed-mode');
+        container.classList.remove('windowed', 'docked');
+        container.style.width = '';
+        container.style.height = '';
+        container.style.left = '';
+        container.style.top = '';
+        container.style.right = '';
+        container.style.bottom = '';
+        if (winBtn) winBtn.innerHTML = '🗗 Windowed';
+        if (hudWinBtn) hudWinBtn.innerHTML = '🗗';
+        if (botWinBtn) {
+            botWinBtn.classList.remove('btn-active');
+            botWinBtn.title = 'Windowed / Movable Mode (W)';
+        }
+        localStorage.setItem('kiosk_window_mode', 'fullscreen');
+    }
+}
+
+function saveKioskWindowRect() {
+    if (!isKioskWindowed) return;
+    const container = document.getElementById('player-container');
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const data = {
+        width: `${Math.round(rect.width)}px`,
+        height: `${Math.round(rect.height)}px`,
+        left: `${Math.round(rect.left)}px`,
+        top: `${Math.round(rect.top)}px`
+    };
+    localStorage.setItem('kiosk_window_rect', JSON.stringify(data));
+}
+
+function centerKioskWindow(e) {
+    if (e) e.stopPropagation();
+    const container = document.getElementById('player-container');
+    if (!container) return;
+    container.classList.remove('docked');
+    isKioskWindowDocked = false;
+    const targetW = Math.min(840, Math.floor(window.innerWidth * 0.85));
+    const targetH = Math.min(500, Math.floor(window.innerHeight * 0.82));
+    const left = Math.max(10, Math.floor((window.innerWidth - targetW) / 2));
+    const top = Math.max(10, Math.floor((window.innerHeight - targetH) / 2));
+    container.style.width = `${targetW}px`;
+    container.style.height = `${targetH}px`;
+    container.style.left = `${left}px`;
+    container.style.top = `${top}px`;
+    container.style.right = 'auto';
+    container.style.bottom = 'auto';
+    saveKioskWindowRect();
+}
+
+function setKioskWindowSize(sizeKey, e) {
+    if (e) e.stopPropagation();
+    if (!isKioskWindowed) toggleWindowedMode();
+    const container = document.getElementById('player-container');
+    if (!container) return;
+    container.classList.remove('docked');
+    isKioskWindowDocked = false;
+    let targetW = 760;
+    let targetH = 460;
+    if (sizeKey === 'sm') { targetW = 480; targetH = 300; }
+    else if (sizeKey === 'md') { targetW = 760; targetH = 460; }
+    else if (sizeKey === 'lg') { targetW = 1040; targetH = 620; }
+
+    targetW = Math.min(targetW, Math.floor(window.innerWidth * 0.96));
+    targetH = Math.min(targetH, Math.floor(window.innerHeight * 0.94));
+
+    const rect = container.getBoundingClientRect();
+    let left = rect.left;
+    let top = rect.top;
+    if (left + targetW > window.innerWidth) left = Math.max(10, window.innerWidth - targetW - 20);
+    if (top + targetH > window.innerHeight) top = Math.max(10, window.innerHeight - targetH - 20);
+
+    container.style.width = `${targetW}px`;
+    container.style.height = `${targetH}px`;
+    container.style.left = `${left}px`;
+    container.style.top = `${top}px`;
+    container.style.right = 'auto';
+    container.style.bottom = 'auto';
+    saveKioskWindowRect();
+}
+
+function toggleKioskWindowDock(e) {
+    if (e) e.stopPropagation();
+    if (!isKioskWindowed) toggleWindowedMode();
+    const container = document.getElementById('player-container');
+    const dockBtn = document.getElementById('winDockBtn');
+    if (!container) return;
+    isKioskWindowDocked = !isKioskWindowDocked;
+    if (isKioskWindowDocked) {
+        container.classList.add('docked');
+        container.style.left = 'auto';
+        container.style.top = 'auto';
+        container.style.right = '20px';
+        container.style.bottom = '20px';
+        container.style.width = '480px';
+        container.style.height = '300px';
+        if (dockBtn) dockBtn.textContent = '🗖 Undock';
+    } else {
+        container.classList.remove('docked');
+        if (dockBtn) dockBtn.textContent = '🗗 Dock';
+        centerKioskWindow();
+    }
+}
+
+function initKioskDragAndResize() {
+    if (kioskDragInitialized) return;
+    const container = document.getElementById('player-container');
+    const header = document.getElementById('kioskTopBar');
+    const grip = document.getElementById('kiosk-resize-grip');
+    const shield = document.getElementById('drag-shield');
+    if (!container || !header) return;
+    kioskDragInitialized = true;
+
+    // Double-click top bar to toggle fullscreen / windowed
+    header.addEventListener('dblclick', (e) => {
+        if (e.target.closest('button, a, input, select, textarea')) return;
+        toggleWindowedMode(e);
+    });
+
+    // PointerEvents Dragging
+    header.addEventListener('pointerdown', (e) => {
+        if (!isKioskWindowed) return;
+        if (e.target.closest('button, a, input, select, textarea')) return;
+        e.preventDefault();
+
+        try {
+            header.setPointerCapture(e.pointerId);
+        } catch(err) {}
+
+        isDraggingKiosk = true;
+        if (shield) shield.style.display = 'block';
+        document.body.classList.add('kiosk-drag-active');
+
+        const rect = container.getBoundingClientRect();
+        container.style.position = 'fixed';
+        container.style.left = `${rect.left}px`;
+        container.style.top = `${rect.top}px`;
+        container.style.right = 'auto';
+        container.style.bottom = 'auto';
+        container.classList.remove('docked');
+        isKioskWindowDocked = false;
+
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const initLeft = rect.left;
+        const initTop = rect.top;
+
+        function onMove(me) {
+            if (!isDraggingKiosk) return;
+            const dx = me.clientX - startX;
+            const dy = me.clientY - startY;
+            let nl = initLeft + dx;
+            let nt = initTop + dy;
+            nl = Math.max(0, Math.min(window.innerWidth - container.offsetWidth, nl));
+            nt = Math.max(0, Math.min(window.innerHeight - container.offsetHeight, nt));
+            container.style.left = `${nl}px`;
+            container.style.top = `${nt}px`;
+        }
+
+        function onUp(ue) {
+            if (!isDraggingKiosk) return;
+            isDraggingKiosk = false;
+            if (shield) shield.style.display = 'none';
+            document.body.classList.remove('kiosk-drag-active');
+            try {
+                header.releasePointerCapture(ue.pointerId);
+            } catch(err) {}
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+            saveKioskWindowRect();
+        }
+
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+        window.addEventListener('pointercancel', onUp);
+    });
+
+    // PointerEvents Resizing via corner grip
+    if (grip) {
+        grip.addEventListener('pointerdown', (e) => {
+            if (!isKioskWindowed) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            try {
+                grip.setPointerCapture(e.pointerId);
+            } catch(err) {}
+
+            isResizingKiosk = true;
+            if (shield) shield.style.display = 'block';
+            document.body.classList.add('kiosk-resize-active');
+
+            const rect = container.getBoundingClientRect();
+            const startX = e.clientX;
+            const startY = e.clientY;
+            const initW = rect.width;
+            const initH = rect.height;
+
+            container.classList.remove('docked');
+            isKioskWindowDocked = false;
+
+            function onMove(me) {
+                if (!isResizingKiosk) return;
+                const dx = me.clientX - startX;
+                const dy = me.clientY - startY;
+                let nw = Math.max(340, Math.min(window.innerWidth - rect.left - 10, initW + dx));
+                let nh = Math.max(220, Math.min(window.innerHeight - rect.top - 10, initH + dy));
+                container.style.width = `${nw}px`;
+                container.style.height = `${nh}px`;
+            }
+
+            function onUp(ue) {
+                if (!isResizingKiosk) return;
+                isResizingKiosk = false;
+                if (shield) shield.style.display = 'none';
+                document.body.classList.remove('kiosk-resize-active');
+                try {
+                    grip.releasePointerCapture(ue.pointerId);
+                } catch(err) {}
+                window.removeEventListener('pointermove', onMove);
+                window.removeEventListener('pointerup', onUp);
+                window.removeEventListener('pointercancel', onUp);
+                saveKioskWindowRect();
+            }
+
+            window.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+            window.addEventListener('pointercancel', onUp);
+        });
+    }
+}
+
+function showErrorToast(msg) {
+    const toast = document.getElementById('errorToast');
+    toast.innerText = msg;
+    toast.style.display = 'block';
+    setTimeout(() => { toast.style.display = 'none'; }, 2000);
+}
+
+// Auto-hide UI on inactivity
+function resetInactivity() {
+    document.getElementById('app-body').classList.remove('ui-hidden');
+    if (inactivityTimer) clearTimeout(inactivityTimer);
+    inactivityTimer = setTimeout(() => {
+        if (!document.getElementById('channelDrawer').classList.contains('open') && !isKioskWindowed) {
+            document.getElementById('app-body').classList.add('ui-hidden');
+        }
+    }, 3500);
+}
+
+window.addEventListener('mousemove', resetInactivity);
+window.addEventListener('touchstart', resetInactivity);
+window.addEventListener('keydown', resetInactivity);
+
+// Open in separate native OS desktop window
+function openDesktopPopupWindow(e) {
+    if (e) e.stopPropagation();
+    const w = 920;
+    const h = 540;
+    const left = Math.max(0, Math.round((screen.width - w) / 2));
+    const top = Math.max(0, Math.round((screen.height - h) / 2));
+    const curUrl = new URL(window.location.href);
+    curUrl.searchParams.set('popup', '1');
+    const win = window.open(
+        curUrl.toString(),
+        'IPTVKioskDesktopWindow',
+        `popup=yes,width=${w},height=${h},left=${left},top=${top},menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no`
+    );
+    if (win) {
+        win.focus();
+    }
+}
+window.openDesktopPopupWindow = openDesktopPopupWindow;
+
+// If already running in separate desktop popup window, hide redundant popout buttons
+const isDesktopPopupWindow = window.opener != null || urlParams.has('popup') || window.name === 'IPTVKioskDesktopWindow';
+if (isDesktopPopupWindow) {
+    const hidePopBtns = () => {
+        const popBtns = document.querySelectorAll('#desktopPopoutBtn, #hudPopoutBtn, #bottomPopoutBtn');
+        popBtns.forEach(btn => btn.style.display = 'none');
+    };
+    if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', hidePopBtns);
+    } else {
+        hidePopBtns();
+    }
+}
+
+// Keyboard Volume Controls & Window Shortcuts
+window.addEventListener('keydown', function(e) {
+    if (e.target.closest('input, select, textarea')) return;
+    if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setVolume(Math.min(100, currentVolume + 5));
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setVolume(Math.max(0, currentVolume - 5));
+    } else if (e.key === 'm' || e.key === 'M') {
+        toggleMute();
+    } else if (e.key === 'c' || e.key === 'C') {
+        toggleClosedCaptions();
+    } else if (e.key === 'w' || e.key === 'W') {
+        toggleWindowedMode();
+    } else if (e.key === 'f' || e.key === 'F') {
+        if (isKioskWindowed) toggleWindowedMode();
+        else toggleFullscreen();
+    } else if (e.key === 'p' || e.key === 'P') {
+        openDesktopPopupWindow();
+    } else if (e.key === 'Escape' && isKioskWindowed) {
+        toggleWindowedMode();
+    }
+});
+
+// Auto-restore windowed mode if stored or requested via URL query param
+if (localStorage.getItem('kiosk_window_mode') === 'windowed' || urlParams.has('windowed')) {
+    toggleWindowedMode();
+}
+
+// Global user interaction handler to unlock audio
+window.addEventListener('click', handleUserInteraction, { passive: true });
+window.addEventListener('keydown', handleUserInteraction, { passive: true });
+window.addEventListener('touchstart', handleUserInteraction, { passive: true });
+
+// Message listener for external controllers (view.html) & YouTube embed postMessages
+window.addEventListener('message', function(event) {
+    if (event.data && typeof event.data === 'object') {
+        if (event.data.type === 'set_volume') {
+            if (typeof event.data.volume !== 'undefined') {
+                currentVolume = Math.round(event.data.volume * 100);
+                localStorage.setItem('kiosk_volume', currentVolume);
+                const slider = document.getElementById('volumeSlider');
+                if (slider) slider.value = currentVolume;
+                const valText = document.getElementById('volumeValue');
+                if (valText) valText.innerText = `${currentVolume}%`;
+            }
+            if (typeof event.data.muted !== 'undefined') {
+                userAudioEnabled = !event.data.muted;
+            }
+            applyStreamVolume();
+        }
+    }
+    try {
+        let msg = event.data;
+        if (typeof msg === 'string') {
+            msg = JSON.parse(msg);
+        }
+        if (msg && (msg.event === 'onReady' || msg.infoDelivery)) {
+            applyStreamVolume();
+        }
+    } catch(e) {}
+});
+
+
+
+// Embeds and web-player pop-ups expose no media state; direct/HLS video reports
+// buffering until it has a frame to show.
+// TV guide now/next for the current channel; channels without a tvg_id hide it
+async function updateProgramInfo() {
+    const stream = streams[currentIndex];
+    const line = document.getElementById('channelProgram');
+    const tag = document.getElementById('hudProgramTag');
+    const hide = () => {
+        if (line) line.hidden = true;
+        if (tag) tag.hidden = true;
+    };
+    const tvgId = stream && stream.tvg_id;
+    if (!tvgId) return hide();
+    try {
+        const res = await fetch(getApiUrl(`api/epg/now?ids=${encodeURIComponent(tvgId)}`));
+        const prog = res.ok ? ((await res.json()).programs || {})[tvgId] : null;
+        if (streams[currentIndex] !== stream) return; // channel changed while fetching
+        if (!prog || !prog.now) return hide();
+        const hm = (iso) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+        const next = prog.next ? `  ·  Next ${hm(prog.next.start)} ${prog.next.title}` : '';
+        if (line) {
+            line.textContent = `▶ ${prog.now.title} · until ${hm(prog.now.stop)}${next}`;
+            line.hidden = false;
+        }
+        if (tag) {
+            document.getElementById('hudProgramName').textContent = prog.now.title;
+            tag.title = `${prog.now.title} · ${hm(prog.now.start)}–${hm(prog.now.stop)}${next}`;
+            tag.hidden = false;
+        }
+    } catch (e) {
+        hide();
+    }
+}
+setInterval(updateProgramInfo, 60000);
+
+function heartbeatPlaybackStatus(stream) {
+    if (isWebpageStream(stream) || isEmbedStream(stream.url)) return 'playing';
+    const player = getActivePlayer();
+    if (!player) return 'buffering';
+    if (player.paused && !player.ended && player.readyState >= 2) return 'paused';
+    return (player.readyState < 3 || !player.videoWidth) ? 'buffering' : 'playing';
+}
+
+async function sendPlayerHeartbeat(statusOverride = null) {
+    try {
+        if (!streams || streams.length === 0 || currentIndex < 0 || !streams[currentIndex]) return;
+        const currentStream = streams[currentIndex];
+        const currentDur = parseInt(currentStream.duration_seconds) || rotationInterval;
+        const payload = {
+            client_id: myClientId,
+            player_type: 'Web Kiosk',
+            playlist_user: urlParams.get('user') || 'default',
+            playlist_mode: currentPlaylistMode || 'streamer',
+            current_channel: currentStream.name || currentStream.title || `Channel ${currentIndex + 1}`,
+            channel_url: currentStream.url || '',
+            channel_index: currentIndex,
+            playback_status: statusOverride || heartbeatPlaybackStatus(currentStream),
+            volume: currentVolume,
+            muted: !userAudioEnabled,
+            shuffle: isShuffle,
+            elapsed_seconds: Math.max(0, currentDur - remainingTime),
+            duration_seconds: currentDur,
+            kiosk_build: KIOSK_BUILD,
+            playlist_hash: lastPlaylistHash,
+            playlist_query: lastPlaylistQuery
+        };
+        const res = await fetch(getApiUrl('api/player/heartbeat'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const reply = res.ok ? await res.json() : null;
+        if (reply && reply.resync) {
+            KioskTelemetry.log('warn', 'kiosk_playlist_resync', 'Server says this kiosk holds a stale playlist, refetching', { playlist_hash: lastPlaylistHash });
+            fetchPlaylist();
+        }
+        if (reply) noteServerBuild(reply.kiosk_build);
+    } catch (e) {}
+}
+
+// Newer kiosk.html on the server: reload at the next channel switch, never mid-show.
+// Skipped in browser fullscreen, where a reload would drop fullscreen (needs a click to restore).
+function noteServerBuild(serverBuild) {
+    if (!serverBuild || !KIOSK_BUILD || KIOSK_BUILD.includes('{') || serverBuild === KIOSK_BUILD || pendingBuildReload) return;
+    pendingBuildReload = true;
+    console.log(`[Kiosk] New kiosk build on server (${KIOSK_BUILD} -> ${serverBuild}); reloading at the next channel switch`);
+}
+
+function canAutoReload() {
+    return !document.fullscreenElement && localStorage.getItem('kiosk_fullscreen_mode') !== 'true';
+}
+
+// Reload the page straight into the next channel (saved as the resume channel)
+function reloadIntoNextChannel() {
+    const idx = getNextIndex();
+    const stream = streams[idx];
+    try {
+        if (isShuffle) markChannelPlayedInShuffle(idx);
+        if (stream && (stream.name || stream.title)) {
+            localStorage.setItem('kiosk_current_channel_name', stream.name || stream.title);
+            if (stream.url) localStorage.setItem('kiosk_current_channel_url', stream.url);
+        }
+    } catch (e) {}
+    KioskTelemetry.log('info', 'kiosk_build_reload', `Reloading for new kiosk build, resuming on "${stream?.name || ''}"`, { build: KIOSK_BUILD });
+    setTimeout(() => window.location.reload(), 300);
+}
+
+// Background live sync & remote control / kick polling + heartbeat telemetry
+let lastKnownVersion = null;
+let lastKnownReload = null;
+let lastKnownSkip = null;
+let heartbeatTick = 0;
+
+// Last-resort recovery, run from this 4 s loop because it keeps going when the player
+// and its watchdog are wedged (2026-10-30: a retry that never started left a black screen)
+const STUCK_SKIP_SECONDS = 90;
+const STUCK_RELOAD_SECONDS = 240;
+let lastProgressAt = Date.now();
+let lastProgressTime = -1;
+let stuckSkipped = false;
+
+function checkKioskProgress() {
+    const stream = streams[currentIndex];
+    const player = getActivePlayer();
+    const t = player ? player.currentTime : -1;
+    if (isPaused || !stream || isWebpageStream(stream) || isEmbedStream(stream.url) || (player && Math.abs(t - lastProgressTime) >= 0.15)) {
+        lastProgressTime = t;
+        lastProgressAt = Date.now();
+        stuckSkipped = false;
+        return;
+    }
+    const stuckFor = Math.round((Date.now() - lastProgressAt) / 1000);
+    if (stuckFor >= STUCK_RELOAD_SECONDS) {
+        KioskTelemetry.log('error', 'kiosk_stuck_reload', `No playback progress for ${stuckFor}s, reloading the kiosk`, { current_time: t });
+        setTimeout(() => window.location.reload(), 1000);
+        lastProgressAt = Date.now();
+    } else if (stuckFor >= STUCK_SKIP_SECONDS && !stuckSkipped) {
+        stuckSkipped = true;
+        KioskTelemetry.log('error', 'kiosk_stuck_skip', `No playback progress for ${stuckFor}s, skipping to the next stream`, { current_time: t });
+        showErrorToast(`⚠️ Channel not playing. Skipping to next stream...`);
+        resetRetryState();
+        nextStream();
+    }
+}
+
+setInterval(async () => {
+    try {
+        checkKioskProgress();
+    } catch (e) {}
+    try {
+        const fetchUser = urlParams.get('user') ? `?user=${encodeURIComponent(urlParams.get('user'))}` : '';
+        const res = await fetch(getApiUrl(`api/playlist/version${fetchUser}`));
+        if (!res.ok) throw new Error(`playlist/version HTTP ${res.status}`);
+        const data = await res.json();
+        if (lastKnownVersion !== null && data.version && data.version !== lastKnownVersion) {
+            fetchPlaylist();
+        }
+        if (lastKnownReload !== null && data.reload_version && data.reload_version !== lastKnownReload) {
+            if (document.fullscreenElement || localStorage.getItem('kiosk_fullscreen_mode') === 'true') {
+                console.log("[Kiosk] Remote reload signal received while in fullscreen. Soft-reloading playlist in-place to protect fullscreen display...");
+                fetchPlaylist();
+            } else {
+                window.location.reload();
+            }
+        }
+        if (lastKnownSkip !== null && data.skip_version && data.skip_version !== lastKnownSkip) {
+            nextStream(null, false);
+        }
+        const slot = playSlotKey(data.override || null);
+        if (lastPlaySlot !== null && slot !== lastPlaySlot) {
+            console.log(`[Kiosk] Play mode changed (${lastPlaySlot} -> ${slot}), refetching playlist`);
+            lastPlaySlot = slot;
+            fetchPlaylist();
+        }
+        noteServerBuild(data.kiosk_build);
+        lastKnownVersion = data.version;
+        lastKnownReload = data.reload_version;
+        lastKnownSkip = data.skip_version;
+    } catch (e) {}
+
+    // Periodic quiet hours check and heartbeat telemetry
+    heartbeatTick++;
+    if (heartbeatTick % 4 === 0) {
+        sendPlayerHeartbeat();
+    }
+    updateQuietHoursPlayerState();
+}, 4000);
+</script>
+
+</body>
+</html>

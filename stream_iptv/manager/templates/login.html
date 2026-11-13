@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - IPTV Kiosk Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ink: #101828;
+            --muted: #536074;
+            --surface: #f7f8fa;
+            --surface-card: #ffffff;
+            --line: #dce1e8;
+            --line-light: #edf2f7;
+            --accent: #1d4ed8;
+            --accent-dark: #1e3a8a;
+            --accent-subtle: #eff6ff;
+            --accent-border: #bfdbfe;
+            --display: "Manrope", Arial, sans-serif;
+            --mono: "DM Mono", monospace;
+            --danger-color: #dc2626;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: var(--display);
+        }
+
+        body {
+            background-color: var(--surface);
+            color: var(--ink);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(29, 78, 216, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(5, 150, 105, 0.04) 0%, transparent 40%);
+        }
+
+        .login-card {
+            width: 100%;
+            max-width: 440px;
+            background: var(--surface-card);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 40px 36px;
+            box-shadow: 0 4px 24px rgba(16, 24, 40, 0.06);
+            animation: fadeIn 0.3s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .logo-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 56px;
+            height: 56px;
+            background: var(--accent-subtle);
+            border: 1px solid var(--accent-border);
+            border-radius: 16px;
+            font-size: 26px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(29, 78, 216, 0.12);
+        }
+
+        h1 {
+            font-size: 22px;
+            font-weight: 800;
+            color: var(--ink);
+            letter-spacing: -0.03em;
+            margin-bottom: 6px;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: var(--muted);
+        }
+
+        .alert-box {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: var(--danger-color);
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            margin-bottom: 20px;
+            font-weight: 600;
+            display: none;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .alert-box.visible {
+            display: flex;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--ink);
+            margin-bottom: 8px;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            background: #ffffff;
+            border: 1px solid var(--line);
+            color: var(--ink);
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.16s ease;
+        }
+
+        input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-subtle);
+            background: #ffffff;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background: var(--accent);
+            color: #ffffff;
+            border: 1px solid var(--accent);
+            padding: 13px 20px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.16s ease;
+            margin-top: 10px;
+            box-shadow: 0 2px 8px rgba(29, 78, 216, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-submit:hover {
+            background: var(--accent-dark);
+            border-color: var(--accent-dark);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(29, 78, 216, 0.3);
+        }
+
+        .btn-submit:active {
+            transform: translateY(0);
+        }
+
+        .footer {
+            margin-top: 24px;
+            text-align: center;
+            font-size: 12px;
+            color: var(--muted);
+            border-top: 1px solid var(--line);
+            padding-top: 18px;
+        }
+
+        .footer a {
+            color: var(--accent);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .footer a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="header">
+            <div class="logo-badge">📺</div>
+            <h1>IPTV Kiosk Manager</h1>
+            <p class="subtitle">Enter your credentials to access the stream manager</p>
+        </div>
+
+        <div id="alertBox" class="alert-box">
+            <span>⚠️</span>
+            <span id="alertText">Invalid username or password</span>
+        </div>
+
+        <form id="loginForm" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <div class="input-wrapper">
+                    <input type="text" id="username" name="username" placeholder="e.g. admin" required autofocus autocomplete="username">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <div class="input-wrapper">
+                    <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+            </div>
+
+            <button type="submit" id="submitBtn" class="btn-submit">
+                <span>Sign In</span>
+                <span>➔</span>
+            </button>
+        </form>
+
+        <div class="footer">
+            <span>Direct Kiosk Viewers: </span>
+            <a href="kiosk?interval=900" target="_blank">Kiosk Player (15m)</a>
+        </div>
+    </div>
+
+    <script>
+        async function handleLogin(e) {
+            e.preventDefault();
+            const alertBox = document.getElementById('alertBox');
+            const alertText = document.getElementById('alertText');
+            const submitBtn = document.getElementById('submitBtn');
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value;
+
+            alertBox.classList.remove('visible');
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span>Verifying...</span>';
+
+            let base = window.location.pathname.startsWith('/stream-iptv') ? '/stream-iptv/' : '/';
+            let loginUrl = base + 'login';
+
+            try {
+                const res = await fetch(loginUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const nextUrl = urlParams.get('next') || base;
+                    window.location.href = nextUrl;
+                } else {
+                    alertText.innerText = data.error || 'Invalid username or password';
+                    alertBox.classList.add('visible');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<span>Sign In</span> <span>➔</span>';
+                    passwordInput.value = '';
+                    passwordInput.focus();
+                }
+            } catch (err) {
+                alertText.innerText = 'Connection error. Please try again.';
+                alertBox.classList.add('visible');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<span>Sign In</span> <span>➔</span>';
+            }
+        }
+    </script>
+</body>
+</html>
